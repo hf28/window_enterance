@@ -1,0 +1,4 @@
+<launch>
+  <node name="impro" pkg="simulate" type="impro" />
+  <node name="dyncon" pkg="simulate" type="dyncon" />
+</launch>
