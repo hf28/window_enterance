@@ -82,7 +82,7 @@ void shiftVector(vector<int>&, int);
 float vectorAverage(vector<int>);
 float vectorSD(vector<int>);
 bool sortcol( const vector<float>&, const vector<float>&);
-
+bool fourPSort (vector<Point>, vector<Point2d>&);
 
 void imageCallback(const sensor_msgs::ImageConstPtr& msg)    //will get called when a new image has arrived on the
 {      //"camera/image" topic. Although the image may have been sent in some arbitrary transport-specific message type,
@@ -227,13 +227,15 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
   vector<Point> conto;
   vector<vector<Point> > poly;
   vector<vector<float> > polyInfo;
-  float ar;
-  int goodIndex=0, ind=0, maxAreaDiff = (img.total()/500);
-  bool four_found = false, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_the_firt, is_it_close_enough, is_it_almost_here;
-  is_it_the_firt = (iter==0);
+  float ar, maxAreaDiff;
+  int goodIndex=0, ind=0; // = (img.total()/450);
+  bool four_found = false, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_the_first, is_it_close_enough, is_it_almost_here;
+  is_it_the_first = (iter==0);
   int enteranceArea = 2*img.total()/5;
 
   drawing = img.clone();
+
+  cout<<"max area dit:\t\t"<<maxAreaDiff<<endl;
 
   for( float i = 0; i< contours.size(); i++ ){
     drawContours( drawing, contours, i, Scalar(0,0,255), 2, 8);
@@ -267,15 +269,20 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
 
   for(int i=0; i<poly.size(); ++i){
 
-    if(iter==0) tempArea = polyInfo[i][3];
+    if(iter==0) {tempArea = polyInfo[i][3];
+      // goodIndex = 0;
+    }
+
+    maxAreaDiff = (1.5*tempArea)/10;
 
     is_it_4p = (polyInfo[i][2]==4);
     is_the_ar_ok = (polyInfo[i][1]<0.5);
     is_the_area_const = (abs(polyInfo[i][3]-tempArea)<maxAreaDiff);
     is_it_close_enough = (tempArea>=1e4)&&(tempArea<enteranceArea);
 
-    // cout<<"area data:   before:\t"<< tempArea<<"\tnew:\t"<<polyInfo[i][3] <<endl;
-    if(is_it_4p && is_the_ar_ok && (is_the_area_const || is_it_the_firt || is_it_close_enough)) {
+    if(!is_the_area_const) continue;
+    cout<<"area data:   before:\t"<< tempArea<<"\tnew:\t"<<polyInfo[i][3] <<endl;
+    if(is_it_4p && is_the_ar_ok && (is_the_area_const || is_it_the_first || is_it_close_enough)) {
       goodIndex = polyInfo[i][0];
       ind = i;
       cout<<"good 4p poly info:\t"<<polyInfo[i][0]<<'\t'<<polyInfo[i][1]<<'\t'<<polyInfo[i][2]<<'\t'<<polyInfo[i][3]<<'\t'<<polyInfo[i][4]<<endl;
@@ -288,7 +295,11 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
   // if
   for(int i=0;i<poly.size();++i){
 
-    if(iter==0) tempArea = polyInfo[i][3];
+    if(iter==0) {tempArea = polyInfo[i][3];
+      // goodIndex = 0;
+    }
+
+    maxAreaDiff = (1.5*tempArea)/10;
 
     is_it_4p = (polyInfo[i][2]==4);
     is_the_ar_ok = (polyInfo[i][1]<0.5);
@@ -296,7 +307,9 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
     is_it_close_enough = ((tempArea>=1e4)&&(tempArea<enteranceArea));
     is_it_almost_here = (polyInfo[i][3]>(img.total()-1e4));
 
-    if(is_it_almost_here || !(is_the_area_const || is_it_the_firt || is_it_close_enough)) continue;
+    if(!is_the_area_const) continue;
+
+    if(is_it_almost_here || !(is_the_area_const || is_it_the_first || is_it_close_enough)) continue;
     else {
       goodIndex = polyInfo[i][0];
       ind = i;
@@ -305,6 +318,8 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
     }
   }
  }
+
+  cout<<"the goodIndex:\t"<<goodIndex<<endl;
 
   if((poly[goodIndex].size()==4 && polyInfo[ind][1]<100)||
      (poly[goodIndex].size()==2 && polyInfo[ind][3]<400)||
@@ -405,12 +420,13 @@ void rectangleGeometric(vector<Point> points, Mat pic, int& dx, int& dy){
 
 float arCalculate(vector<Point> points,  Mat pic){
   if(points.size() == 1) return 10e6;
+  vector<Point2d> sorted;
   // cout<<"num of pts:\t\t\t"<<points.size()<<endl;
   unsigned int max=0, may=0, mix=10e6, miy=10e6;
   Point pmax(0,0), pmay(0,0), pmix(10e6,0), pmiy(0,10e6);
   float aspRec, maxDist = -1;
   // const f;
-  bool isHorizontal = false;
+  bool isHorizontal = false, is_sorted;
 
   for(int i=0; i<points.size(); ++i){
     if(max<points[i].x) max = points[i].x;
@@ -423,27 +439,23 @@ float arCalculate(vector<Point> points,  Mat pic){
     if(may == points[i].y && pmay==Point(0,0)) pmay = points[i];
     if(mix == points[i].x && pmix==Point(10e6,0)) pmix = points[i];
     if(miy == points[i].y && pmiy==Point(0,10e6)) pmiy = points[i];
-  }
-  for(int i=0; i<points.size(); ++i){
     for(int j=0; j<points.size(); ++j){
       if(i==j) continue;
-      if (points[i].x == points[j].x || points[i].y == points[j].y) isHorizontal = true;
       if(maxDist<(points[i].x - points[j].x)) maxDist = points[i].x - points[j].x;
     }
   }
-  if(points.size()!=4 || isHorizontal){
-    lab:
-    // cout<<"I found\tmax:"<<max<<"\tmay:"<<may<<"\tmix:"<<mix<<"\tmiy:"<<miy<<endl;
+  // is_sorted =
+  if(maxDist>(pic.cols-10)) return 10e6;
+
+  // if(points.size()!=4){
+
+    if(points.size()==4 && fourPSort(points, sorted)) {
+      aspRec = euclideanDist(sorted[0],sorted[1])/euclideanDist(sorted[0],sorted[3]);
+      }
+  else{
     aspRec = float(max-mix)/float(may-miy);
     // cout<<"aspRec\t"<<aspRec<<endl;
   }
-  else {
-    // cout<<"tilt rect!"<<endl;
-    if(euclideanDist(pmay, pmix)==0 || euclideanDist(pmix,pmiy)==0) goto lab;
-    aspRec = euclideanDist(pmay, pmix)/euclideanDist(pmix,pmiy);
-    if(aspRec<1) aspRec = 1.0/aspRec;
-  }
-  if(maxDist>(pic.cols-10)) return 10e6;
   return aspRec;
 }
 
@@ -481,4 +493,75 @@ float vectorSD(vector<int> v){
 
   bool sortcol( const vector<float>& v1, const vector<float>& v2 ) {
    return v1[1] < v2[1];
+  }
+
+  bool fourPSort (vector<Point> cont, vector<Point2d> &res) {
+    if(cont.size()==0)
+    {
+      cout << "empty" << endl;
+      return false;
+    }
+    int xm=0, ym=0;
+    for(int i=0; i<cont.size(); ++i){
+      xm += cont[i].x;
+      ym += cont[i].y;
+    }
+    xm /= cont.size();
+    ym /= cont.size();
+    vector<Point2d>  c1, c2, c3, c4;
+    vector<Point2d>  t1, t2, t3, t4;
+
+
+    for(int i=0; i<cont.size(); ++i){
+      //////
+        if((cont[i].x<=xm)&&(cont[i].y>=ym)){
+          c1.push_back(cont[i]);
+        }
+        if((cont[i].x>xm)&&(cont[i].y>ym)){
+          c2.push_back(cont[i]);
+        }
+        if((cont[i].x>=xm)&&(cont[i].y<=ym)){
+          c3.push_back(cont[i]);
+        }
+        if((cont[i].x<xm)&&(cont[i].y<ym)){
+          c4.push_back(cont[i]);
+        }
+        //////
+        // cout<<2<<endl;
+    }
+
+    cout << c1.size() << " " << c2.size() << " " << c3.size() << " " << c4.size() << endl;
+
+    if(c1.size()>1){
+      // t1 = c1;
+      // c1.clear();
+      // c1 = fourPSort(c1);
+      return false;
+    }
+    if(c2.size()>1){
+      // t2 = c2;
+      // c2.clear();
+      // c2 = fourPSort(c2);
+      return false;
+    }
+    if(c3.size()>1){
+      // t3 = c3;
+      // c3.clear();
+      // c3 = fourPSort(c3);
+      return false;
+    }
+    if(c4.size()>1){
+      // t4 = c4;
+      // c4.clear();
+      // c4 = fourPSort(c4);
+      return false;
+    }
+
+    c1.insert(c1.end(), c2.begin(), c2.end());
+    c3.insert(c3.end(), c4.begin(), c4.end());
+    c1.insert(c1.end(), c3.begin(), c3.end());
+
+    res.clear();
+    res = c1;
+    return true;
   }
