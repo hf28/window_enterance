@@ -19,28 +19,26 @@ const int max_value = 255;
 int low_H = 15, low_S = 174, low_V = 0;
 int high_H = 23, high_S = 255, high_V = 255;
 int canny1 = 131, canny2 = 0, GuKernelSize = 7;
+int ity=0, itz=0;
 float GuSigma = 1.2;
-int vecy, vecz;
-bool flag = false, msgFlag = false;
+int vecy, vecz, tempvecy, tempvecz, tempArea, iter=0;
+bool flag = false, msgFlag = false, long_distance = false, enterance = false;
 
 static void on_canny1_trackbar(int, void *)
 {
     // low_H = min(high_H-1, low_H);
     setTrackbarPos("canny1", window_capture_name, canny1);
 }
-
 static void on_canny2_trackbar(int, void *)
 {
     // low_H = min(high_H-1, low_H);
     setTrackbarPos("canny1", window_capture_name, canny1);
 }
-
 static void on_GuKernelSize_trackbar(int, void *)
 {
     if(GuKernelSize%2 == 0) GuKernelSize += 1;
     setTrackbarPos("GuKernelSize", window_capture_name, GuKernelSize);
 }
-
 static void on_low_H_thresh_trackbar(int, void *)
 {
     low_H = min(high_H-1, low_H);
@@ -73,18 +71,18 @@ static void on_high_V_thresh_trackbar(int, void *)
 }
 
 float arCalculate(vector<Point>, Mat);
-
 float euclideanDist(Point, Point);
-
-bool csort (vector<Point>, vector<Point2d>&);
-
 Mat imageProcessing(Mat);
-
 void rectangleGeometric(vector<Point>,  Mat, int&, int&);
+Mat preProcessing(Mat);
+vector<vector<Point>> contourExtraction(Mat);
+Mat contourManagement(  vector<vector<Point>>, Mat);
+bool detectionSafetyCheck(vector<int>& ,const int, const int, const bool, const bool, int&);
+void shiftVector(vector<int>&, int);
+float vectorAverage(vector<int>);
+float vectorSD(vector<int>);
+bool sortcol( const vector<float>&, const vector<float>&);
 
-bool sortcol( const vector<float>& v1, const vector<float>& v2 ) {
- return v1[1] < v2[1];
-}
 
 void imageCallback(const sensor_msgs::ImageConstPtr& msg)    //will get called when a new image has arrived on the
 {      //"camera/image" topic. Although the image may have been sent in some arbitrary transport-specific message type,
@@ -98,6 +96,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr& msg)    //will get called w
     // imshow("token pic", img);
     frm = img.clone();
     frame = imageProcessing(frm);
+    cout<<"flag:\t"<<flag<<endl;
     // imshow("processed pic", frame);
     cv::waitKey(30);
   }
@@ -119,259 +118,286 @@ int main(int argc, char **argv)
   ros::Rate loop_rate(10); // Loop at 10Hz
   simulate::imtodyn msg;
 
-  // msg.header.stamp = ros::Time::now();
-  // msg.header.frame_id = "/world";
-
-
-  int count = 0;
+  bool safety_check_z = true, safety_check_y = true, has_detected = false;
+  int count=0, pubCount=0;
+  vector<int> yBuffer, zBuffer;
   while (ros::ok())
   {
     if(count == 0) cout<<"Node Started\n";
-    // if(!msgFlag) cout<<"No Input\n";
-    // cout<<"main\t"<<vecy<<'\t'<<vecz<<endl;
-    // cout<<"\n\n\n----------------------"/*<<\nimpro flag:\t"<<flag*/<<endl;
-    if(flag){
+
+    if(flag) {pubCount++;
+      has_detected = true;
+    }
+    else has_detected = false;
+
+    cout<<"flag:   "<<flag<<endl;
+    cout<<"has_detected:   "<<has_detected<<endl;
+
+    safety_check_y = detectionSafetyCheck(yBuffer, vecy, pubCount, has_detected, long_distance, ity);
+    safety_check_z = detectionSafetyCheck(zBuffer, vecz, pubCount, has_detected, long_distance, itz);
+
+    cout<<"\npubCount:\t\t"<<pubCount<<endl;
+
+    if(flag && safety_check_y && safety_check_z){
       msg.y = vecy;
       msg.z = vecz;
+      msg.enterance = enterance;
       cout<<"impro published data\tmsg.y:"<<msg.y<<"\tmsg.z:\t"<<msg.z<<endl;
       pubinfo.publish(msg);
       flag = false;
     }
-    else cout<<"nothing published\n";
-    cout<<"\n\n\nIteration End\n----------------------\n";
+    else {
+      if(!(safety_check_y && safety_check_z)) cout<<"Not so safe!\n"<<"data might be wrong\tmsg.y:\t"<<vecy<<"\tmsg.z:\t"<<vecz<<endl;
+      cout<<"nothing published\n";
+      safety_check_y = true;
+      safety_check_z = true;
+    }
+    cout<<"\n\n\nIteration End\n-----------------------------------------------------------------------\n";
     ros::spinOnce();
     loop_rate.sleep();
     ++count;
     msgFlag = false;
   }
-  // cv::destroyWindow("view");
   return 0;
 }
+
 
 Mat imageProcessing(Mat imin){
 
   cout<<"\n~~~~~\nIP is called\n";
 
-   namedWindow(window_capture_name);
-   createTrackbar("canny1", window_capture_name, &canny1, max_canny1, on_canny1_trackbar);
-   createTrackbar("canny2", window_capture_name, &canny2, max_canny2, on_canny2_trackbar);
-   createTrackbar("GuKernelSize", window_capture_name, &GuKernelSize, max_GuKernelSize, on_GuKernelSize_trackbar);
-   // createTrackbar("canny2", window_capture_name, &canny2, max_canny2, on_canny2_trackbar);
-   createTrackbar("Low H", window_capture_name, &low_H, max_value_H, on_low_H_thresh_trackbar);
-   createTrackbar("High H", window_capture_name, &high_H, max_value_H, on_high_H_thresh_trackbar);
-   createTrackbar("Low S", window_capture_name, &low_S, max_value, on_low_S_thresh_trackbar);
-   createTrackbar("High S", window_capture_name, &high_S, max_value, on_high_S_thresh_trackbar);
-   createTrackbar("Low V", window_capture_name, &low_V, max_value, on_low_V_thresh_trackbar);
-   createTrackbar("High V", window_capture_name, &high_V, max_value, on_high_V_thresh_trackbar);
-
-   int goodIndex = 0, ind = 0;
-   bool four_found = false;
-   float ar;// arDifference = 10e6;
-   RNG rng(12345);
-   Mat imin_hsv, imout, drawing;
+   Mat imout, result;
    vector<vector<Point> > contours, poly;
-   vector<vector<float> > arDifference;
-   vector<Vec4i> hierarchy;
-   vector<Point> conto;
+
    vector<Point2d> contor;
-   int erosion_size = 3;
-   Mat element = getStructuringElement( MORPH_RECT,
-                                       Size( 2*erosion_size + 1, 2*erosion_size+1 ),
-                                       Point( erosion_size, erosion_size ) );
 
-   // cvtColor(imin, mask, CV_BGR2GRAY);
-   drawing = imin.clone();
-   // GaussianBlur(imin, imin, Size(GuKernelSize,GuKernelSize), 1.2);
-   cvtColor(imin, imin_hsv, COLOR_BGR2HSV);
-   inRange(imin_hsv, Scalar(low_H, low_S, low_V), Scalar(high_H, high_S, high_V), imout);
-   // Canny(imin, imout, canny1, canny2, 3);
-   // dilate( imout, imout, element );
-   // GaussianBlur(imout, imout, Size(7,7), 1.2);
-   bitwise_not(imout, imout);
-   imshow(window_capture_name, imout);
-   // erode(imout, imout, element );
+   imout = preProcessing(imin);
 
-   findContours( imout, contours, hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_TC89_KCOS, Point(0, 0) );
-   cout<<"num of contours: \t"<<contours.size()<<endl;
-   if(contours.size()==0) {
-     cout<<"\nIP is out\n~~~~~";
-     return imout;
-   }
-   for( float i = 0; i< contours.size(); i++ ){
-     // if(contourArea(contours[i])>400) isall2 = false;
-     drawContours( drawing, contours, i, Scalar(0,0,255), 2, 8, hierarchy, 0, Point() );
-     approxPolyDP(Mat(contours[i]), conto, 13, true);
-     poly.push_back(conto);
-     ar = arCalculate(conto, imout);
-     if(conto.size()==1) arDifference.push_back({i, 1000, 1, 0});
-     else arDifference.push_back({i, abs(ar-shapeAR), float(conto.size()), float(contourArea(conto)), ar});
-   }
-   int m = arDifference.size();
-   int n = arDifference[0].size();
-   // cout<<"unsorted:\n";
-   // for (int i=0; i<m; i++)
-   // {
-   //     for (int j=0; j<n ;j++)
-   //         cout << arDifference[i][j] << " ";
-   //     cout << endl;
-   // }
-   sort(arDifference.begin(), arDifference.end(),sortcol);
-   // cout<<"sorted:\n";
-   // for (int i=0; i<m; i++)
-   // {
-   //     for (int j=0; j<n ;j++)
-   //         cout << arDifference[i][j] << " ";
-   //     cout << endl;
-   // }
-   // cout<<"1\n";
-   for(int i=0; i<poly.size(); ++i){
-     if(arDifference[i][2]==4 && arDifference[i][1]<0.5/* && arDifference[i][3]<220000*/) {
-       // if(minFourArea>arDifference[i][3]) minFourArea = arDifference[i][3];
-       goodIndex = arDifference[i][0];
-       ind = i;
-       cout<<"good poly info:\t"<<arDifference[i][0]<<'\t'<<arDifference[i][1]<<'\t'<<arDifference[i][2]<<'\t'<<arDifference[i][3]<<'\t'<<arDifference[i][4]<<endl;
-       four_found = true;
-       break;
-     }
-   }
-   if(!four_found){
-   for(int i=0;i<poly.size();++i){
-     if(arDifference[i][3]>(imout.total()-10e4)) continue;
-     // else if(foursAreBetter) goto lab1;
-     else {
-       goodIndex = arDifference[i][0];
-       ind = i;
-       cout<<"good poly info:\t"<<arDifference[i][0]<<'\t'<<arDifference[i][1]<<'\t'<<arDifference[i][2]<<'\t'<<arDifference[i][3]<<'\t'<<arDifference[i][4]<<endl;
-       break;
-     }
-   }
-  }
+   contours = contourExtraction(imout);
 
-  // cout<<"size:\t"<<imout.total()<<endl;
-  // cout<<"goodIndex:\t"<<goodIndex<<"\tpts num:\t"<<poly[goodIndex].size()<<"\tardif:\t"<<poly[goodIndex][1]<<endl;
+   result = contourManagement(contours, imin);
 
-   // goodIndex = arDifference[ind][0];
-
-
-   // bool is_csorted = csort(poly[goodIndex], contor);
-
-   if((poly[goodIndex].size() == 4 && arDifference[ind][1]<100)||(poly[goodIndex].size()==2 && contourArea(poly[goodIndex])<400)){
-     // cout<<"arrived here\n";
-     for (int k=0; k<poly[goodIndex].size(); ++k){
-       // cout<<"bog\n";
-       circle(drawing, poly[goodIndex][k], 10, Scalar(0,0,0), 3);
-     }
-     // cout<<"before\t"<<vecy<<'\t'<<vecz<<endl;
-     rectangleGeometric(poly[goodIndex] ,drawing, vecy, vecz);
-     flag = true;
-   }
-   // else {
-   //   cout<<"arrived here\n";
-   //   for (int k=0; k<poly[goodIndex].size(); ++k){
-   //     cout<<"gob\n";
-   //     circle(drawing, poly[goodIndex][k], 10, Scalar(0,0,0), 3);
-   //   }
-   //   imshow("bad poly", drawing);
-   // }
-
-   imshow("processed pic", drawing);
-
-   imout = drawing.clone();
+   imshow("processed pic", result);
    cout<<"\nIP is out\n~~~~~\n";
-   return imout;
+   return result;
 }
 
-void rectangleGeometric(vector<Point> rect, Mat pic, int& dx, int& dy){
-  int xc=0, yc=0, xpc = (pic.cols/2)-1, ypc = (pic.rows/2)-1;
-  for (int k=0; k<rect.size(); ++k){
-    xc += rect[k].x/rect.size();
-    yc += rect[k].y/rect.size();
+Mat preProcessing(Mat imin){
+  namedWindow(window_capture_name);
+  createTrackbar("canny1", window_capture_name, &canny1, max_canny1, on_canny1_trackbar);
+  createTrackbar("canny2", window_capture_name, &canny2, max_canny2, on_canny2_trackbar);
+  createTrackbar("GuKernelSize", window_capture_name, &GuKernelSize, max_GuKernelSize, on_GuKernelSize_trackbar);
+  createTrackbar("Low H", window_capture_name, &low_H, max_value_H, on_low_H_thresh_trackbar);
+  createTrackbar("High H", window_capture_name, &high_H, max_value_H, on_high_H_thresh_trackbar);
+  createTrackbar("Low S", window_capture_name, &low_S, max_value, on_low_S_thresh_trackbar);
+  createTrackbar("High S", window_capture_name, &high_S, max_value, on_high_S_thresh_trackbar);
+  createTrackbar("Low V", window_capture_name, &low_V, max_value, on_low_V_thresh_trackbar);
+  createTrackbar("High V", window_capture_name, &high_V, max_value, on_high_V_thresh_trackbar);
+
+  Mat out, imin_hsv;
+  // int erosion_size = 3;
+  // Mat element = getStructuringElement( MORPH_RECT,
+  //                                     Size( 2*erosion_size + 1, 2*erosion_size+1 ),
+  //                                     Point( erosion_size, erosion_size ) );
+
+  // GaussianBlur(imin, imin, Size(GuKernelSize,GuKernelSize), 1.2);
+  cvtColor(imin, imin_hsv, COLOR_BGR2HSV);
+  inRange(imin_hsv, Scalar(low_H, low_S, low_V), Scalar(high_H, high_S, high_V), out);
+  // Canny(imin, out, canny1, canny2, 3);
+  // dilate( out, out, element );
+  // GaussianBlur(out, out, Size(7,7), 1.2);
+  bitwise_not(out, out);
+  imshow(window_capture_name, out);
+  // erode(out, out, element );
+  return out;
+}
+
+vector<vector<Point>> contourExtraction(Mat img){
+  vector<vector<Point> > contours;
+  vector<Vec4i> hierarchy;
+
+  findContours( img, contours, hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_TC89_KCOS, Point(0, 0) );
+  cout<<"num of contours: \t"<<contours.size()<<endl;
+
+  return contours;
+}
+
+Mat contourManagement(  vector<vector<Point>> contours, Mat img){
+  Mat drawing;
+  vector<Point> conto;
+  vector<vector<Point> > poly;
+  vector<vector<float> > polyInfo;
+  float ar;
+  int goodIndex=0, ind=0, maxAreaDiff = (img.total()/500);
+  bool four_found = false, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_the_firt, is_it_close_enough, is_it_almost_here;
+  is_it_the_firt = (iter==0);
+
+  drawing = img.clone();
+
+  for( float i = 0; i< contours.size(); i++ ){
+    drawContours( drawing, contours, i, Scalar(0,0,255), 2, 8);
+    approxPolyDP(Mat(contours[i]), conto, 13, true);
+    poly.push_back(conto);
+    ar = arCalculate(conto, img);
+    if(conto.size()==1) polyInfo.push_back({i, 1000, 1, 0});
+    else polyInfo.push_back({i, abs(ar-shapeAR), float(conto.size()), float(contourArea(conto)), ar});
   }
-  xc += 1;
-  yc += 1;
+
+  int m = polyInfo.size();
+  int n = polyInfo[0].size();
+  // cout<<"unsorted:\n";
+  // for (int i=0; i<m; i++)
+  // {
+  //     for (int j=0; j<n ;j++)
+  //         cout << polyInfo[i][j] << " ";
+  //     cout << endl;
+  // }
+  sort(polyInfo.begin(), polyInfo.end(),sortcol);
+  // cout<<"sorted:\n";
+  //
+  // for (int i=0; i<m; i++)
+  // {
+  //     for (int j=0; j<n ;j++)
+  //         cout << polyInfo[i][j] << " ";
+  //     cout << endl;
+  // }
+
+  cout<<"area data:   before:\t"<< tempArea<<endl;
+
+  for(int i=0; i<poly.size(); ++i){
+
+    if(iter==0) tempArea = polyInfo[i][3];
+
+    is_it_4p = (polyInfo[i][2]==4);
+    is_the_ar_ok = (polyInfo[i][1]<0.5);
+    is_the_area_const = (abs(polyInfo[i][3]-tempArea)<maxAreaDiff);
+    is_it_close_enough = (tempArea>=1e4);
+
+    // cout<<"area data:   before:\t"<< tempArea<<"\tnew:\t"<<polyInfo[i][3] <<endl;
+    if(is_it_4p && is_the_ar_ok && (is_the_area_const || is_it_the_firt || is_it_close_enough)) {
+      goodIndex = polyInfo[i][0];
+      ind = i;
+      cout<<"good 4p poly info:\t"<<polyInfo[i][0]<<'\t'<<polyInfo[i][1]<<'\t'<<polyInfo[i][2]<<'\t'<<polyInfo[i][3]<<'\t'<<polyInfo[i][4]<<endl;
+      four_found = true;
+      break;
+    }
+  }
+
+  if(!four_found){
+
+  for(int i=0;i<poly.size();++i){
+
+    if(iter==0) tempArea = polyInfo[i][3];
+
+    is_it_4p = (polyInfo[i][2]==4);
+    is_the_ar_ok = (polyInfo[i][1]<0.5);
+    is_the_area_const = (abs(polyInfo[i][3]-tempArea)<maxAreaDiff);
+    is_it_close_enough = (tempArea>=1e4);
+    is_it_almost_here = (polyInfo[i][3]>(img.total()-1e4));
+
+    if(is_it_almost_here || !(is_the_area_const || is_it_the_firt || is_it_close_enough)) continue;
+    else {
+      goodIndex = polyInfo[i][0];
+      ind = i;
+      cout<<"good none 4p poly info:\t"<<polyInfo[i][0]<<'\t'<<polyInfo[i][1]<<'\t'<<polyInfo[i][2]<<'\t'<<polyInfo[i][3]<<'\t'<<polyInfo[i][4]<<endl;
+      break;
+    }
+  }
+ }
+
+  if((poly[goodIndex].size()==4 && polyInfo[ind][1]<100)||
+     (poly[goodIndex].size()==2 && polyInfo[ind][3]<400)||
+     (polyInfo[ind][1]<0.1)){
+
+    if(poly[goodIndex].size()==2 && polyInfo[ind][3]<400) long_distance = true;
+    else long_distance = false;
+
+    rectangleGeometric(poly[goodIndex] ,drawing, vecy, vecz);
+
+    if(iter==0){
+    tempvecy = vecy;
+    tempvecz = vecz;
+    }
+
+    Point oldP(tempvecy,tempvecz), newP(vecy,vecz);
+    float euc = euclideanDist(oldP,newP);
+    cout<<"iter:\t"<<iter<<"\tdata before:\t"<<tempvecy<<'\t'<<tempvecz<<'\t'<<"new data:\t"<<vecy<<'\t'<<vecz<<'\t'<<"euc:  "<<euc<<endl;
+
+    // if(euc>img.cols/5) return drawing;
+    if(euc>100) return drawing;
+    else {
+      tempvecy = vecy;
+      tempvecz = vecz;
+    }
+
+    flag = true;
+    if(polyInfo[ind][3]>(2*img.total()/5)) {
+      cout<<"enter!!\n";
+      enterance = true;
+    }
+    tempArea = polyInfo[ind][3];
+    drawContours( drawing, poly, goodIndex, Scalar(0,255,0), 2, 8);
+    for (int k=0; k<poly[goodIndex].size(); ++k){
+      circle(drawing, poly[goodIndex][k], 10, Scalar(0,0,0), 3);
+    }
+
+    ++iter;
+  }
+
+  return drawing;
+}
+
+bool detectionSafetyCheck(vector<int>& buf ,const int data, const int cnt, const bool is_there_a_wndw, const bool ld, int& it){
+  // if(!is_there_a_wndw) return false;
+    // vector<int> buf;
+    // int temp[TIME_INTERVAL];
+    cout << "\nentered dsc,    it: " <<it<< '\n';
+    const int TIME_INTERVAL = 20, NEW_DATA_ACCEPTANCE_TIME = 50;
+    bool is_it_safe = true, passed_filter = false;
+    float av = vectorAverage(buf), sd = vectorSD(buf), diff = abs(data-av);
+    // std::vector<int>::iterator it = buf.begin();
+
+    if(diff<=(2*sd) || diff<70) passed_filter = true;
+    cout<<"the buffer:\t";
+    for(int i=0; i<buf.size(); ++i){
+      cout<<"  "<<buf[i];
+    }
+    cout<<endl;
+    // absdf2 = diff;
+      if(cnt<TIME_INTERVAL && (passed_filter || cnt<=10) && is_there_a_wndw){
+        //
+        buf.push_back(data);
+        cout<<"1the sd:\t\t"<<sd<<"\t\tdifference:\t\t"<<diff<<endl;
+        it=0;
+        // is_it_safe = true;
+      }
+      else if((passed_filter || ld || sd==0) && is_there_a_wndw){
+        shiftVector(buf, data);
+        cout<<"3the sd:\t\t"<<sd<<"\t\tdifference:\t\t"<<diff<<"\t\tld:"<<ld<<endl;
+        it=0;
+      }
+      else if(is_there_a_wndw){
+        cout<<"4the sd:\t\t"<<sd<<"\t\tdifference:\t\t"<<diff<<endl;
+        is_it_safe = false;
+        if(it>=NEW_DATA_ACCEPTANCE_TIME) is_it_safe = true;
+        it++;
+      }
+      return is_it_safe;
+}
+
+void rectangleGeometric(vector<Point> points, Mat pic, int& dx, int& dy){
+  int xc=0, yc=0, xpc = (pic.cols/2)-1, ypc = (pic.rows/2)-1;
+  unsigned int max=0, may=0, mix=10e6, miy=10e6;
+  for(int i=0; i<points.size(); ++i){
+    if(max<points[i].x) max = points[i].x;
+    if(may<points[i].y) may = points[i].y;
+    if(mix>points[i].x) mix = points[i].x;
+    if(miy>points[i].y) miy = points[i].y;
+  }
+  xc = (max+mix)/2 + 1;
+  yc = (may+miy)/2 + 1;
   dx = xc - xpc;
   dy = yc - ypc;
-  // cout<<dx<<'\t'<<dy<<endl;
-}
-
-bool csort (vector<Point> cont, vector<Point2d> &res) {
-  if(cont.size()==0)
-  {
-    cout << "empty" << endl;
-    return false;
-  }
-  int xm=0, ym=0;
-  for(int i=0; i<cont.size(); ++i){
-    xm += cont[i].x;
-    ym += cont[i].y;
-  }
-  xm /= cont.size();
-  ym /= cont.size();
-  vector<Point2d>  c1, c2, c3, c4;
-  vector<Point2d>  t1, t2, t3, t4;
-
-
-//////
-// cout<<1<<endl;
-// cout<<"size:"<<cont.size()<<endl;
-// cout<<"coor:"<<xm<<'\t'<<ym<<endl;
-
-
-  for(int i=0; i<cont.size(); ++i){
-    //////
-      if((cont[i].x<=xm)&&(cont[i].y>=ym)){
-        c1.push_back(cont[i]);
-      }
-      if((cont[i].x>xm)&&(cont[i].y>ym)){
-        c2.push_back(cont[i]);
-      }
-      if((cont[i].x>=xm)&&(cont[i].y<=ym)){
-        c3.push_back(cont[i]);
-      }
-      if((cont[i].x<xm)&&(cont[i].y<ym)){
-        c4.push_back(cont[i]);
-      }
-      //////
-      // cout<<2<<endl;
-  }
-
-  // cout << c1.size() << " " << c2.size() << " " << c3.size() << " " << c4.size() << endl;
-
-  if(c1.size()>1){
-    // t1 = c1;
-    // c1.clear();
-    // c1 = csort(c1);
-    return false;
-  }
-  if(c2.size()>1){
-    // t2 = c2;
-    // c2.clear();
-    // c2 = csort(c2);
-    return false;
-  }
-  if(c3.size()>1){
-    // t3 = c3;
-    // c3.clear();
-    // c3 = csort(c3);
-    return false;
-  }
-  if(c4.size()>1){
-    // t4 = c4;
-    // c4.clear();
-    // c4 = csort(c4);
-    return false;
-  }
-  //////
-  // cout<<3<<endl;
-
-  c1.insert(c1.end(), c2.begin(), c2.end());
-  c3.insert(c3.end(), c4.begin(), c4.end());
-  c1.insert(c1.end(), c3.begin(), c3.end());
-  //////
-  // cout<<4<<endl;
-  res.clear();
-  res = c1;
-  return true;
 }
 
 float arCalculate(vector<Point> points,  Mat pic){
@@ -379,7 +405,7 @@ float arCalculate(vector<Point> points,  Mat pic){
   // cout<<"num of pts:\t\t\t"<<points.size()<<endl;
   unsigned int max=0, may=0, mix=10e6, miy=10e6;
   Point pmax(0,0), pmay(0,0), pmix(10e6,0), pmiy(0,10e6);
-  float aspRec, maxDist;
+  float aspRec, maxDist = -1;
   // const f;
   bool isHorizontal = false;
 
@@ -399,7 +425,7 @@ float arCalculate(vector<Point> points,  Mat pic){
     for(int j=0; j<points.size(); ++j){
       if(i==j) continue;
       if (points[i].x == points[j].x || points[i].y == points[j].y) isHorizontal = true;
-      if(maxDist<euclideanDist(points[i], points[j])) maxDist = euclideanDist(points[i], points[j]);
+      if(maxDist<(points[i].x - points[j].x)) maxDist = points[i].x - points[j].x;
     }
   }
   if(points.size()!=4 || isHorizontal){
@@ -414,7 +440,7 @@ float arCalculate(vector<Point> points,  Mat pic){
     aspRec = euclideanDist(pmay, pmix)/euclideanDist(pmix,pmiy);
     if(aspRec<1) aspRec = 1.0/aspRec;
   }
-  if(maxDist>(pic.cols-10) || maxDist>(pic.rows-10)) return 10e6;
+  if(maxDist>(pic.cols-10)) return 10e6;
   return aspRec;
 }
 
@@ -422,3 +448,34 @@ float euclideanDist(Point p, Point q) {
     Point diff = p - q;
     return sqrt(diff.x*diff.x + diff.y*diff.y);
 }
+
+void shiftVector(vector<int>& in, int x){
+  for(int i=0; i<in.size()-1; ++i){
+      // temp[i] = in[i];
+      in[i] = in[i+1];
+    }
+  in.at(in.size()-1) = x;
+  return;
+}
+
+float vectorAverage(vector<int> v){
+  float ave, sum=0;
+  for(int i=0; i<v.size(); ++i){
+    sum += float(v[i]);
+    }
+  ave = sum/v.size();
+}
+
+float vectorSD(vector<int> v){
+  float ave, sd, var=0;
+  ave = vectorAverage(v);
+  for(int i=0; i<v.size(); ++i){
+    var += float((v[i]-ave)*(v[i]-ave))/v.size();
+  }
+  sd = sqrt(var);
+  return sd;
+  }
+
+  bool sortcol( const vector<float>& v1, const vector<float>& v2 ) {
+   return v1[1] < v2[1];
+  }
