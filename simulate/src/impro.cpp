@@ -133,8 +133,8 @@ int main(int argc, char **argv)
     cout<<"flag:   "<<flag<<endl;
     cout<<"has_detected:   "<<has_detected<<endl;
 
-    safety_check_y = detectionSafetyCheck(yBuffer, vecy, pubCount, has_detected, long_distance, ity);
-    safety_check_z = detectionSafetyCheck(zBuffer, vecz, pubCount, has_detected, long_distance, itz);
+    // safety_check_y = detectionSafetyCheck(yBuffer, vecy, pubCount, has_detected, long_distance, ity);
+    // safety_check_z = detectionSafetyCheck(zBuffer, vecz, pubCount, has_detected, long_distance, itz);
 
     cout<<"\npubCount:\t\t"<<pubCount<<endl;
 
@@ -231,6 +231,7 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
   int goodIndex=0, ind=0, maxAreaDiff = (img.total()/500);
   bool four_found = false, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_the_firt, is_it_close_enough, is_it_almost_here;
   is_it_the_firt = (iter==0);
+  int enteranceArea = 2*img.total()/5;
 
   drawing = img.clone();
 
@@ -271,7 +272,7 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
     is_it_4p = (polyInfo[i][2]==4);
     is_the_ar_ok = (polyInfo[i][1]<0.5);
     is_the_area_const = (abs(polyInfo[i][3]-tempArea)<maxAreaDiff);
-    is_it_close_enough = (tempArea>=1e4);
+    is_it_close_enough = (tempArea>=1e4)&&(tempArea<enteranceArea);
 
     // cout<<"area data:   before:\t"<< tempArea<<"\tnew:\t"<<polyInfo[i][3] <<endl;
     if(is_it_4p && is_the_ar_ok && (is_the_area_const || is_it_the_firt || is_it_close_enough)) {
@@ -284,7 +285,7 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
   }
 
   if(!four_found){
-
+  // if
   for(int i=0;i<poly.size();++i){
 
     if(iter==0) tempArea = polyInfo[i][3];
@@ -292,7 +293,7 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
     is_it_4p = (polyInfo[i][2]==4);
     is_the_ar_ok = (polyInfo[i][1]<0.5);
     is_the_area_const = (abs(polyInfo[i][3]-tempArea)<maxAreaDiff);
-    is_it_close_enough = (tempArea>=1e4);
+    is_it_close_enough = ((tempArea>=1e4)&&(tempArea<enteranceArea));
     is_it_almost_here = (polyInfo[i][3]>(img.total()-1e4));
 
     if(is_it_almost_here || !(is_the_area_const || is_it_the_firt || is_it_close_enough)) continue;
@@ -307,7 +308,9 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
 
   if((poly[goodIndex].size()==4 && polyInfo[ind][1]<100)||
      (poly[goodIndex].size()==2 && polyInfo[ind][3]<400)||
-     (polyInfo[ind][1]<0.1)){
+     (polyInfo[ind][1]<0.4)){
+
+       cout<<"entered\n";
 
     if(poly[goodIndex].size()==2 && polyInfo[ind][3]<400) long_distance = true;
     else long_distance = false;
@@ -324,14 +327,14 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
     cout<<"iter:\t"<<iter<<"\tdata before:\t"<<tempvecy<<'\t'<<tempvecz<<'\t'<<"new data:\t"<<vecy<<'\t'<<vecz<<'\t'<<"euc:  "<<euc<<endl;
 
     // if(euc>img.cols/5) return drawing;
-    if(euc>100) return drawing;
+    if(euc>img.cols/10) return drawing;
     else {
       tempvecy = vecy;
       tempvecz = vecz;
     }
 
     flag = true;
-    if(polyInfo[ind][3]>(2*img.total()/5)) {
+    if(polyInfo[ind][3]>(enteranceArea)) {
       cout<<"enter!!\n";
       enterance = true;
     }
