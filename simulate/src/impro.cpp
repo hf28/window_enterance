@@ -20,8 +20,8 @@ int low_H = 15, low_S = 174, low_V = 0;
 int high_H = 23, high_S = 255, high_V = 255;
 int canny1 = 131, canny2 = 0, GuKernelSize = 7;
 int ity=0, itz=0;
-float GuSigma = 1.2;
-int vecy, vecz, tempvecy, tempvecz, tempArea, iter=0;
+float GuSigma = 1.2, euc = 0;
+int vecy, vecz, tempvecy, tempvecz, tempArea, iter=0, eucFilterIt=0, areaIt=0;
 bool flag = false, msgFlag = false, long_distance = false, enterance = false;
 
 static void on_canny1_trackbar(int, void *)
@@ -229,9 +229,12 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
   vector<vector<float> > polyInfo;
   float ar, maxAreaDiff;
   int goodIndex=0, ind=0; // = (img.total()/450);
-  bool four_found = false, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_the_first, is_it_close_enough, is_it_almost_here;
-  is_it_the_first = (iter==0);
+  bool four_found = false, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_the_first,
+       is_it_close_enough, is_it_almost_here, is_the_ca_const;
   int enteranceArea = 2*img.total()/5;
+
+  is_it_the_first = (iter==0);
+  is_the_ca_const = ((euc<img.cols/10) || eucFilterIt>50);
 
   drawing = img.clone();
 
@@ -273,16 +276,22 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
       // goodIndex = 0;
     }
 
-    maxAreaDiff = (1.5*tempArea)/10;
+    if(tempArea >= enteranceArea/3) maxAreaDiff = (3*tempArea)/10;
+    else maxAreaDiff = (tempArea)/10;
 
     is_it_4p = (polyInfo[i][2]==4);
     is_the_ar_ok = (polyInfo[i][1]<0.5);
-    is_the_area_const = (abs(polyInfo[i][3]-tempArea)<maxAreaDiff);
+    is_the_area_const = (abs(polyInfo[i][3]-tempArea)<maxAreaDiff)||(areaIt>100);
     is_it_close_enough = (tempArea>=1e4)&&(tempArea<enteranceArea);
 
-    if(!is_the_area_const) continue;
+    if(!is_the_area_const) {
+      // if(i == poly.size()-1){ areaIt++;
+      // cout<<"the areaIt\t:\t"<<areaIt<<endl;}
+      continue;
+    }
     cout<<"area data:   before:\t"<< tempArea<<"\tnew:\t"<<polyInfo[i][3] <<endl;
-    if(is_it_4p && is_the_ar_ok && (is_the_area_const || is_it_the_first || is_it_close_enough)) {
+    if(is_it_4p && is_the_ar_ok && is_the_ca_const &&
+      (is_the_area_const || is_it_the_first || is_it_close_enough)) {
       goodIndex = polyInfo[i][0];
       ind = i;
       cout<<"good 4p poly info:\t"<<polyInfo[i][0]<<'\t'<<polyInfo[i][1]<<'\t'<<polyInfo[i][2]<<'\t'<<polyInfo[i][3]<<'\t'<<polyInfo[i][4]<<endl;
@@ -292,14 +301,14 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
   }
 
   if(!four_found){
-  // if
   for(int i=0;i<poly.size();++i){
 
     if(iter==0) {tempArea = polyInfo[i][3];
       // goodIndex = 0;
     }
 
-    maxAreaDiff = (1.5*tempArea)/10;
+    if(tempArea >= enteranceArea/3) maxAreaDiff = (2*tempArea)/10;
+    else maxAreaDiff = (tempArea)/10;
 
     is_it_4p = (polyInfo[i][2]==4);
     is_the_ar_ok = (polyInfo[i][1]<0.5);
@@ -307,8 +316,13 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
     is_it_close_enough = ((tempArea>=1e4)&&(tempArea<enteranceArea));
     is_it_almost_here = (polyInfo[i][3]>(img.total()-1e4));
 
-    if(!is_the_area_const) continue;
 
+    if(!is_the_area_const) {
+      // if(i == poly.size()-1){ areaIt++;
+      // cout<<"the areaIt\t:\t"<<areaIt<<endl;}
+      continue;
+    }
+    if(!is_the_ca_const) continue;
     if(is_it_almost_here || !(is_the_area_const || is_it_the_first || is_it_close_enough)) continue;
     else {
       goodIndex = polyInfo[i][0];
@@ -323,7 +337,7 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
 
   if((poly[goodIndex].size()==4 && polyInfo[ind][1]<100)||
      (poly[goodIndex].size()==2 && polyInfo[ind][3]<400)||
-     (polyInfo[ind][1]<0.4)){
+     (is_the_area_const || is_it_the_first || is_it_close_enough)){
 
        cout<<"entered\n";
 
@@ -338,14 +352,20 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
     }
 
     Point oldP(tempvecy,tempvecz), newP(vecy,vecz);
-    float euc = euclideanDist(oldP,newP);
+    euc = euclideanDist(oldP,newP);
     cout<<"iter:\t"<<iter<<"\tdata before:\t"<<tempvecy<<'\t'<<tempvecz<<'\t'<<"new data:\t"<<vecy<<'\t'<<vecz<<'\t'<<"euc:  "<<euc<<endl;
 
     // if(euc>img.cols/5) return drawing;
-    if(euc>img.cols/10) return drawing;
+    if(euc>img.cols/10) {
+      eucFilterIt++;
+      cout<<"eucFilterIt\t:\t"<<eucFilterIt<<endl;
+      if(eucFilterIt>50) goto lab;
+      return drawing;}
     else {
+      lab:
       tempvecy = vecy;
       tempvecz = vecz;
+      eucFilterIt = 0;
     }
 
     flag = true;
