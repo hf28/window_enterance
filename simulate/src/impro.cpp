@@ -5,6 +5,7 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include "simulate/imtodyn.h"
+#include "simulate/dyntoim.h"
 #include <algorithm>
 using namespace cv;
 using namespace std;
@@ -21,8 +22,10 @@ int high_H = 23, high_S = 255, high_V = 255;
 int canny1 = 131, canny2 = 0, GuKernelSize = 7;
 int ity=0, itz=0;
 float GuSigma = 1.2, euc = 0;
-int vecy, vecz, tempvecy, tempvecz, tempArea, iter=0, eucFilterIt=0, areaIt=0;
+int vecy, vecz, tempvecy, tempvecz, tempArea, iter=0, eucFilterIt=0, eucFIt=0, areaIt=0;
+bool lost = false;
 bool flag = false, msgFlag = false, long_distance = false, enterance = false;
+Point oldP, newP;
 
 static void on_canny1_trackbar(int, void *)
 {
@@ -106,6 +109,12 @@ void imageCallback(const sensor_msgs::ImageConstPtr& msg)    //will get called w
   }
 }
 
+void dynCallback(const simulate::dyntoim msg)
+{
+  lost = msg.lost;
+  cout<<"dyncon published data\tlost:"<<lost<<endl;
+}
+
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "impro");
@@ -113,6 +122,7 @@ int main(int argc, char **argv)
   // cv::namedWindow("view");
   cv::startWindowThread();
   image_transport::ImageTransport it(nh);
+  ros::Subscriber dynSub = nh.subscribe("dynamic_feedback", 1, dynCallback);
   image_transport::Subscriber sub = it.subscribe("/quadrotor_1/front/image_raw", 1, imageCallback);
   ros::Publisher pubinfo = nh.advertise<simulate::imtodyn>("visual_info", 10);
   ros::Rate loop_rate(10); // Loop at 10Hz
@@ -183,16 +193,16 @@ Mat imageProcessing(Mat imin){
 }
 
 Mat preProcessing(Mat imin){
-  namedWindow(window_capture_name);
-  createTrackbar("canny1", window_capture_name, &canny1, max_canny1, on_canny1_trackbar);
-  createTrackbar("canny2", window_capture_name, &canny2, max_canny2, on_canny2_trackbar);
-  createTrackbar("GuKernelSize", window_capture_name, &GuKernelSize, max_GuKernelSize, on_GuKernelSize_trackbar);
-  createTrackbar("Low H", window_capture_name, &low_H, max_value_H, on_low_H_thresh_trackbar);
-  createTrackbar("High H", window_capture_name, &high_H, max_value_H, on_high_H_thresh_trackbar);
-  createTrackbar("Low S", window_capture_name, &low_S, max_value, on_low_S_thresh_trackbar);
-  createTrackbar("High S", window_capture_name, &high_S, max_value, on_high_S_thresh_trackbar);
-  createTrackbar("Low V", window_capture_name, &low_V, max_value, on_low_V_thresh_trackbar);
-  createTrackbar("High V", window_capture_name, &high_V, max_value, on_high_V_thresh_trackbar);
+  // namedWindow(window_capture_name);
+  // createTrackbar("canny1", window_capture_name, &canny1, max_canny1, on_canny1_trackbar);
+  // createTrackbar("canny2", window_capture_name, &canny2, max_canny2, on_canny2_trackbar);
+  // createTrackbar("GuKernelSize", window_capture_name, &GuKernelSize, max_GuKernelSize, on_GuKernelSize_trackbar);
+  // createTrackbar("Low H", window_capture_name, &low_H, max_value_H, on_low_H_thresh_trackbar);
+  // createTrackbar("High H", window_capture_name, &high_H, max_value_H, on_high_H_thresh_trackbar);
+  // createTrackbar("Low S", window_capture_name, &low_S, max_value, on_low_S_thresh_trackbar);
+  // createTrackbar("High S", window_capture_name, &high_S, max_value, on_high_S_thresh_trackbar);
+  // createTrackbar("Low V", window_capture_name, &low_V, max_value, on_low_V_thresh_trackbar);
+  // createTrackbar("High V", window_capture_name, &high_V, max_value, on_high_V_thresh_trackbar);
 
   Mat out, imin_hsv;
   // int erosion_size = 3;
@@ -207,48 +217,80 @@ Mat preProcessing(Mat imin){
   // dilate( out, out, element );
   // GaussianBlur(out, out, Size(7,7), 1.2);
   bitwise_not(out, out);
-  imshow(window_capture_name, out);
+  // imshow(window_capture_name, out);
   // erode(out, out, element );
   return out;
 }
 
 vector<vector<Point>> contourExtraction(Mat img){
-  vector<vector<Point> > contours;
+  vector<vector<Point> > contours, polies;
   vector<Vec4i> hierarchy;
+  vector<Point> conto;
 
   findContours( img, contours, hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_TC89_KCOS, Point(0, 0) );
+  for( float i = 0; i< contours.size(); i++ ){
+    // drawContours( drawing, contours, i, Scalar(0,0,255), 2, 8);
+    approxPolyDP(Mat(contours[i]), conto, 13, true);
+    polies.push_back(conto);
+  }
   cout<<"num of contours: \t"<<contours.size()<<endl;
 
-  return contours;
+  return polies;
 }
 
-Mat contourManagement(  vector<vector<Point>> contours, Mat img){
+Mat contourManagement(  vector<vector<Point>> poly, Mat img){
   Mat drawing;
   vector<Point> conto;
-  vector<vector<Point> > poly;
+  // vector<vector<Point> > poly;
   vector<vector<float> > polyInfo;
-  float ar, maxAreaDiff;
-  int goodIndex=0, ind=0; // = (img.total()/450);
+  float ar, maxAreaDiff, changeFactor, areaDiff, area,  picChord, polyScore, centerDist, arDiff, caseEuc;
+  int goodIndex=-1, ind=0, case_z, case_y; // = (img.total()/450);
   bool four_found = false, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_the_first,
-       is_it_close_enough, is_it_almost_here, is_the_ca_const;
+       is_it_close_enough, is_it_almost_here, is_the_ca_const, is_it_the_full_frame,
+       the_close_angle_case;
   int enteranceArea = 2*img.total()/5;
 
-  is_it_the_first = (iter==0);
-  is_the_ca_const = ((euc<img.cols/10) || eucFilterIt>50);
+  cout<<"iter:\t"<<iter<<endl;
 
+  picChord = sqrt((img.cols*img.cols) + (img.rows*img.rows));
+
+  // if(lost) iter = 0;
+  is_it_the_first = (iter==0);
+//   if(is_it_the_first || eucFIt>20){is_the_ca_const = true;}
+//   else {
+//     is_the_ca_const = (caseEuc<(img.cols/10) );
+//     if((caseEuc<(0.5*tempvecy)) || (eucFilterIt>50)) is_the_ca_const = true;
+// }
   drawing = img.clone();
 
-  cout<<"max area dit:\t\t"<<maxAreaDiff<<endl;
+  // cout<<"max area diff:\t\t"<<maxAreaDiff<<endl;
+  cout<<"\noldP: \t"<<oldP<<endl;;
 
-  for( float i = 0; i< contours.size(); i++ ){
-    drawContours( drawing, contours, i, Scalar(0,0,255), 2, 8);
-    approxPolyDP(Mat(contours[i]), conto, 13, true);
-    poly.push_back(conto);
+  for( float i = 0; i< poly.size(); i++ ){
+    // drawContours( drawing, contours, i, Scalar(0,0,255), 2, 8);
+    // approxPolyDP(Mat(contours[i]), conto, 13, true);
+    // poly.push_back(conto);
+    conto = poly[i];
     ar = arCalculate(conto, img);
-    if(conto.size()==1) polyInfo.push_back({i, 1000, 1, 0});
-    else polyInfo.push_back({i, abs(ar-shapeAR), float(conto.size()), float(contourArea(conto)), ar});
-  }
+    if(conto.size()==2) area = abs(conto[0].x-conto[1].x)*abs(conto[0].y-conto[1].y);
+    else if(conto.size()==3) area = 2*contourArea(conto);
+    else area = contourArea(conto);
+    rectangleGeometric(conto, drawing, case_y, case_z);
+    if(is_it_the_first) oldP = Point(case_y,case_z);
+    centerDist = euclideanDist(oldP, Point(case_y,case_z));
+    arDiff = abs(ar-shapeAR);
 
+    if(iter==0) polyScore = arDiff;
+    else{
+      polyScore = abs(area-tempArea)/tempArea + (2*centerDist/picChord) + (arDiff/shapeAR);
+    }
+
+    // if(iter==0)
+    if(conto.size()==1) polyInfo.push_back({i, 1000, 1000, 1, 0, 1000, 0,0,0,1000,1000});
+    else polyInfo.push_back({i, polyScore, arDiff, float(conto.size()), area, ar,
+                            abs(area-tempArea)/tempArea, (2*centerDist/picChord),
+                            (0.5*arDiff/shapeAR), centerDist, float(case_y), float(case_z)});
+  }
   int m = polyInfo.size();
   int n = polyInfo[0].size();
   // cout<<"unsorted:\n";
@@ -259,42 +301,54 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
   //     cout << endl;
   // }
   sort(polyInfo.begin(), polyInfo.end(),sortcol);
-  // cout<<"sorted:\n";
-  //
-  // for (int i=0; i<m; i++)
-  // {
-  //     for (int j=0; j<n ;j++)
-  //         cout << polyInfo[i][j] << " ";
-  //     cout << endl;
-  // }
+  cout<<"sorted:\n";
+
+  for (int i=0; (i<m)&&(polyInfo[i][2]<100); i++)
+  {
+
+      for (int j=0; j<n ;j++)
+          cout << polyInfo[i][j] << "  ";
+      cout /*<<polyInfo[i][4]*/<< endl;
+  }
+
+  the_close_angle_case = (polyInfo[0][2]>0.9);
 
   cout<<"area data:   before:\t"<< tempArea<<endl;
 
   for(int i=0; i<poly.size(); ++i){
 
-    if(iter==0) {tempArea = polyInfo[i][3];
+    if(iter==0) {tempArea = polyInfo[i][4];
       // goodIndex = 0;
     }
 
     if(tempArea >= enteranceArea/3) maxAreaDiff = (3*tempArea)/10;
-    else maxAreaDiff = (tempArea)/10;
+    else if(long_distance) maxAreaDiff = (3*tempArea)/10;
+    else maxAreaDiff = (1.8*tempArea)/10;
 
-    is_it_4p = (polyInfo[i][2]==4);
-    is_the_ar_ok = (polyInfo[i][1]<0.5);
-    is_the_area_const = (abs(polyInfo[i][3]-tempArea)<maxAreaDiff)||(areaIt>100);
+    areaDiff = abs(polyInfo[i][4]-tempArea);
+
+    is_the_ca_const = (polyInfo[i][9]<(picChord/5)) || (iter<10);
+    is_it_4p = (polyInfo[i][3]==4);
+    is_the_area_const = areaDiff<maxAreaDiff;/*||(areaIt>100);*/
     is_it_close_enough = (tempArea>=1e4)&&(tempArea<enteranceArea);
+    is_it_the_full_frame = polyInfo[i][4]>(img.total()-1e4);
+    if(the_close_angle_case) is_the_ar_ok = polyInfo[i][2]<1.5;
+    else is_the_ar_ok = (polyInfo[i][2]<0.7);
 
-    if(!is_the_area_const) {
+    if(i<poly.size()) cout<<"filters report 4p\t:\t"<<is_it_the_first <<"  "<< is_the_ca_const<<"  "<<is_it_4p <<"  "
+        << is_the_ar_ok<<"  "<< is_the_area_const<<"  "<<is_it_close_enough <<"  "<< is_it_the_full_frame<<"  "<<endl;
+
+    if(!is_the_area_const || is_it_the_full_frame || !is_it_4p) {
       // if(i == poly.size()-1){ areaIt++;
       // cout<<"the areaIt\t:\t"<<areaIt<<endl;}
       continue;
     }
-    cout<<"area data:   before:\t"<< tempArea<<"\tnew:\t"<<polyInfo[i][3] <<endl;
+    cout<<"area data:   before:\t"<< tempArea<<"\tnew:\t"<<polyInfo[i][4] <<endl;
     if(is_it_4p && is_the_ar_ok && is_the_ca_const &&
       (is_the_area_const || is_it_the_first || is_it_close_enough)) {
       goodIndex = polyInfo[i][0];
       ind = i;
-      cout<<"good 4p poly info:\t"<<polyInfo[i][0]<<'\t'<<polyInfo[i][1]<<'\t'<<polyInfo[i][2]<<'\t'<<polyInfo[i][3]<<'\t'<<polyInfo[i][4]<<endl;
+      cout<<"good 4p poly info:\t"<<polyInfo[i][0]<<'\t'<<polyInfo[i][1]<<'\t'<<polyInfo[i][2]<<'\t'<<polyInfo[i][3]<<'\t'<<polyInfo[i][4]<<polyInfo[i][5]<<endl;
       four_found = true;
       break;
     }
@@ -303,46 +357,70 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
   if(!four_found){
   for(int i=0;i<poly.size();++i){
 
-    if(iter==0) {tempArea = polyInfo[i][3];
+    if(iter==0) {tempArea = polyInfo[i][4];
       // goodIndex = 0;
     }
 
-    if(tempArea >= enteranceArea/3) maxAreaDiff = (2*tempArea)/10;
-    else maxAreaDiff = (tempArea)/10;
+    if(tempArea >= enteranceArea/3) maxAreaDiff = (3*tempArea)/10;
+    else if(long_distance) maxAreaDiff = img.total()/400;
+    else maxAreaDiff = (1.3*tempArea)/10;
 
-    is_it_4p = (polyInfo[i][2]==4);
-    is_the_ar_ok = (polyInfo[i][1]<0.5);
-    is_the_area_const = (abs(polyInfo[i][3]-tempArea)<maxAreaDiff);
+    areaDiff = abs(polyInfo[i][4]-tempArea);
+
+    is_the_ca_const = (polyInfo[i][9]<(picChord/5)) || (iter<10);
+    is_it_4p = (polyInfo[i][3]==4);
+    is_the_area_const = (areaDiff<maxAreaDiff);
     is_it_close_enough = ((tempArea>=1e4)&&(tempArea<enteranceArea));
-    is_it_almost_here = (polyInfo[i][3]>(img.total()-1e4));
+    is_it_almost_here = (polyInfo[i][4]>(img.total()-1e4));
+    is_it_the_full_frame = polyInfo[i][4]>(img.total()-1e4);
+    if(the_close_angle_case) is_the_ar_ok = polyInfo[i][2]<1.5;
+    else is_the_ar_ok = (polyInfo[i][2]<0.7);
 
+    if(i<5) cout<<"filters report n4p\t:\t"<<is_it_the_first <<"  "<< is_the_ca_const<<"  "
+        << is_the_ar_ok<<"  "<< is_the_area_const<<"  "<<is_it_close_enough <<"  "<< is_it_the_full_frame
+        <<"  "<<is_it_almost_here<<"  "<<endl;
 
-    if(!is_the_area_const) {
+    if(!is_the_area_const || is_it_the_full_frame) {
       // if(i == poly.size()-1){ areaIt++;
       // cout<<"the areaIt\t:\t"<<areaIt<<endl;}
       continue;
     }
-    if(!is_the_ca_const) continue;
+    if(!is_the_ca_const || is_it_4p) continue;
     if(is_it_almost_here || !(is_the_area_const || is_it_the_first || is_it_close_enough)) continue;
     else {
       goodIndex = polyInfo[i][0];
       ind = i;
-      cout<<"good none 4p poly info:\t"<<polyInfo[i][0]<<'\t'<<polyInfo[i][1]<<'\t'<<polyInfo[i][2]<<'\t'<<polyInfo[i][3]<<'\t'<<polyInfo[i][4]<<endl;
+      cout<<"good none 4p poly info:\t"<<polyInfo[i][0]<<'\t'<<polyInfo[i][1]<<'\t'<<polyInfo[i][2]<<'\t'<<polyInfo[i][3]<<'\t'<<polyInfo[i][4]<<polyInfo[i][5]<<endl;
       break;
     }
   }
  }
 
+
+ if(!is_the_ca_const){
+    eucFIt++;
+    if(goodIndex<poly.size()-1) goodIndex++;
+ }
+ else eucFIt = 0;
+
+ if(goodIndex==-1 || polyInfo[ind][2]>=100) return drawing;
+
+
+
   cout<<"the goodIndex:\t"<<goodIndex<<endl;
 
-  if((poly[goodIndex].size()==4 && polyInfo[ind][1]<100)||
-     (poly[goodIndex].size()==2 && polyInfo[ind][3]<400)||
+  if((poly[goodIndex].size()==4 && polyInfo[ind][2]<100)||
+     (poly[goodIndex].size()==2 && polyInfo[ind][4]<400)||
      (is_the_area_const || is_it_the_first || is_it_close_enough)){
 
        cout<<"entered\n";
 
-    if(poly[goodIndex].size()==2 && polyInfo[ind][3]<400) long_distance = true;
+    if((poly[goodIndex].size()<4 && polyInfo[ind][4]<(img.total()/500)) ||
+      (poly[goodIndex].size()==4 && polyInfo[ind][4]<(img.total()/400)))
+      long_distance = true;
     else long_distance = false;
+
+    cout<<"long_distance:\t\t"<<long_distance<<endl;
 
     rectangleGeometric(poly[goodIndex] ,drawing, vecy, vecz);
 
@@ -351,16 +429,19 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
     tempvecz = vecz;
     }
 
-    Point oldP(tempvecy,tempvecz), newP(vecy,vecz);
+    oldP = Point(tempvecy,tempvecz);
+    newP = Point(vecy,vecz);
     euc = euclideanDist(oldP,newP);
     cout<<"iter:\t"<<iter<<"\tdata before:\t"<<tempvecy<<'\t'<<tempvecz<<'\t'<<"new data:\t"<<vecy<<'\t'<<vecz<<'\t'<<"euc:  "<<euc<<endl;
 
     // if(euc>img.cols/5) return drawing;
-    if(euc>img.cols/10) {
+    // if(euc>img.cols/10) {
+    if((euc>img.cols/10)){
+      if((euc<(0.5*tempvecy)) || (eucFilterIt>50)) goto lab;
       eucFilterIt++;
       cout<<"eucFilterIt\t:\t"<<eucFilterIt<<endl;
-      if(eucFilterIt>50) goto lab;
-      return drawing;}
+      return drawing;
+    }
     else {
       lab:
       tempvecy = vecy;
@@ -369,11 +450,17 @@ Mat contourManagement(  vector<vector<Point>> contours, Mat img){
     }
 
     flag = true;
-    if(polyInfo[ind][3]>(enteranceArea)) {
+    if(polyInfo[ind][4]>(enteranceArea)) {
       cout<<"enter!!\n";
       enterance = true;
     }
-    tempArea = polyInfo[ind][3];
+
+    if(polyInfo[ind][3]==2) tempArea = abs(poly[goodIndex][0].x-poly[goodIndex][1].x)*abs(poly[goodIndex][0].y-poly[goodIndex][1].y);
+    else if(polyInfo[ind][3]==3) tempArea = polyInfo[ind][4];
+    else tempArea = polyInfo[ind][4];
+
+
+
     drawContours( drawing, poly, goodIndex, Scalar(0,255,0), 2, 8);
     for (int k=0; k<poly[goodIndex].size(); ++k){
       circle(drawing, poly[goodIndex][k], 10, Scalar(0,0,0), 3);
