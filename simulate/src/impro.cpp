@@ -94,7 +94,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr& msg)    //will get called w
   try  // notice that the callback need only handle the normal sensor_msgs/Image type. All image encoding/decoding is
   {    //handled automagically
     // cv::imshow("view", cv_bridge::toCvShare(msg, "bgr8")->image);  //We convert the ROS image message to an OpenCV image
-                                                                   //with BGR pixel encoding, then show it in a display window.
+                                                                      //with BGR pixel encoding, then show it in a display window.
     Mat frame, frm, img = cv_bridge::toCvShare(msg, "bgr8")->image;
     // imshow("token pic", img);
     frm = img.clone();
@@ -142,9 +142,6 @@ int main(int argc, char **argv)
 
     cout<<"flag:   "<<flag<<endl;
     cout<<"has_detected:   "<<has_detected<<endl;
-
-    // safety_check_y = detectionSafetyCheck(yBuffer, vecy, pubCount, has_detected, long_distance, ity);
-    // safety_check_z = detectionSafetyCheck(zBuffer, vecz, pubCount, has_detected, long_distance, itz);
 
     cout<<"\npubCount:\t\t"<<pubCount<<endl;
 
@@ -247,7 +244,7 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
   int goodIndex=-1, ind=0, case_z, case_y; // = (img.total()/450);
   bool four_found = false, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_the_first,
        is_it_close_enough, is_it_almost_here, is_the_ca_const, is_it_the_full_frame,
-       the_close_angle_case;
+       the_close_angle_case, in_fours=true, gab=true;
   int enteranceArea = 2*img.total()/5;
 
   cout<<"iter:\t"<<iter<<endl;
@@ -311,7 +308,7 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
       cout /*<<polyInfo[i][4]*/<< endl;
   }
 
-  the_close_angle_case = (polyInfo[0][2]>0.9);
+  the_close_angle_case = (polyInfo[0][2]>0.8);
 
   cout<<"area data:   before:\t"<< tempArea<<endl;
 
@@ -321,81 +318,56 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
       // goodIndex = 0;
     }
 
-    if(tempArea >= enteranceArea/3) maxAreaDiff = (3*tempArea)/10;
-    else if(long_distance) maxAreaDiff = (3*tempArea)/10;
+    is_it_4p = (polyInfo[i][3]==4)/*||is_it_close_enough*/;
+    if(!is_it_4p && in_fours) {
+      if((i==polyInfo.size()-1)) {
+        in_fours = false;
+        i = -1;
+        continue;
+        }
+      else continue;
+    }
+
+    if(tempArea >= enteranceArea/3) maxAreaDiff = (35*tempArea)/10;
+    else if(tempArea >= enteranceArea/9) maxAreaDiff = (2.3*tempArea)/10;
+    else if(long_distance) maxAreaDiff = (3.5*tempArea)/10;
     else maxAreaDiff = (1.8*tempArea)/10;
 
     areaDiff = abs(polyInfo[i][4]-tempArea);
+    cout<<"areaDiff:\t"<<areaDiff<<endl;
 
-    is_the_ca_const = (polyInfo[i][9]<(picChord/5)) || (iter<10);
-    is_it_4p = (polyInfo[i][3]==4);
+    is_the_ca_const = (polyInfo[i][9]<(picChord/3)) || (iter<10);
     is_the_area_const = areaDiff<maxAreaDiff;/*||(areaIt>100);*/
     is_it_close_enough = (tempArea>=1e4)&&(tempArea<enteranceArea);
     is_it_the_full_frame = polyInfo[i][4]>(img.total()-1e4);
     if(the_close_angle_case) is_the_ar_ok = polyInfo[i][2]<1.5;
-    else is_the_ar_ok = (polyInfo[i][2]<0.7);
+    else is_the_ar_ok = (polyInfo[i][2]<0.8);
 
-    if(i<poly.size()) cout<<"filters report 4p\t:\t"<<is_it_the_first <<"  "<< is_the_ca_const<<"  "<<is_it_4p <<"  "
-        << is_the_ar_ok<<"  "<< is_the_area_const<<"  "<<is_it_close_enough <<"  "<< is_it_the_full_frame<<"  "<<endl;
+    if(in_fours) cout<<"filters report 4p\t:\t";
+    else cout<<"filters report n4p\t:\t";
+    cout<<is_it_the_first <<"  " << is_the_ca_const<<"  "<<is_it_4p <<"  "<< is_the_ar_ok
+        <<"  "<< is_the_area_const<<"  "<<is_it_close_enough <<"  "<< is_it_the_full_frame<<"  "<<endl;
 
-    if(!is_the_area_const || is_it_the_full_frame || !is_it_4p) {
-      // if(i == poly.size()-1){ areaIt++;
-      // cout<<"the areaIt\t:\t"<<areaIt<<endl;}
+    if((is_the_area_const|| is_it_the_first || is_it_close_enough)&& !is_it_the_full_frame
+       && (is_it_4p == in_fours) && is_the_ca_const && is_the_ar_ok) {
+         goodIndex = polyInfo[i][0];
+         ind = i;
+         if(in_fours) cout<<"good 4p poly info:\t";
+         else cout<<"good none 4p poly info:\t";
+         for(int k=0; k<polyInfo[ind].size(); ++k) cout<<polyInfo[ind][k]<<'\t';
+         cout<<endl;
+         cout<<"area data:   before:\t"<< tempArea<<"\tnew:\t"<<polyInfo[i][4] <<endl;
+         four_found = true;
+         break;
+    }
+
+    if(is_it_4p && i==polyInfo.size()-1 && in_fours){
+      in_fours = false;
+      i = -1;
       continue;
     }
-    cout<<"area data:   before:\t"<< tempArea<<"\tnew:\t"<<polyInfo[i][4] <<endl;
-    if(is_it_4p && is_the_ar_ok && is_the_ca_const &&
-      (is_the_area_const || is_it_the_first || is_it_close_enough)) {
-      goodIndex = polyInfo[i][0];
-      ind = i;
-      cout<<"good 4p poly info:\t"<<polyInfo[i][0]<<'\t'<<polyInfo[i][1]<<'\t'<<polyInfo[i][2]<<'\t'<<polyInfo[i][3]<<'\t'<<polyInfo[i][4]<<polyInfo[i][5]<<endl;
-      four_found = true;
-      break;
-    }
+
   }
-
-  if(!four_found){
-  for(int i=0;i<poly.size();++i){
-
-    if(iter==0) {tempArea = polyInfo[i][4];
-      // goodIndex = 0;
-    }
-
-    if(tempArea >= enteranceArea/3) maxAreaDiff = (3*tempArea)/10;
-    else if(long_distance) maxAreaDiff = img.total()/400;
-    else maxAreaDiff = (1.3*tempArea)/10;
-
-    areaDiff = abs(polyInfo[i][4]-tempArea);
-
-    is_the_ca_const = (polyInfo[i][9]<(picChord/5)) || (iter<10);
-    is_it_4p = (polyInfo[i][3]==4);
-    is_the_area_const = (areaDiff<maxAreaDiff);
-    is_it_close_enough = ((tempArea>=1e4)&&(tempArea<enteranceArea));
-    is_it_almost_here = (polyInfo[i][4]>(img.total()-1e4));
-    is_it_the_full_frame = polyInfo[i][4]>(img.total()-1e4);
-    if(the_close_angle_case) is_the_ar_ok = polyInfo[i][2]<1.5;
-    else is_the_ar_ok = (polyInfo[i][2]<0.7);
-
-    if(i<5) cout<<"filters report n4p\t:\t"<<is_it_the_first <<"  "<< is_the_ca_const<<"  "
-        << is_the_ar_ok<<"  "<< is_the_area_const<<"  "<<is_it_close_enough <<"  "<< is_it_the_full_frame
-        <<"  "<<is_it_almost_here<<"  "<<endl;
-
-    if(!is_the_area_const || is_it_the_full_frame) {
-      // if(i == poly.size()-1){ areaIt++;
-      // cout<<"the areaIt\t:\t"<<areaIt<<endl;}
-      continue;
-    }
-    if(!is_the_ca_const || is_it_4p) continue;
-    if(is_it_almost_here || !(is_the_area_const || is_it_the_first || is_it_close_enough)) continue;
-    else {
-      goodIndex = polyInfo[i][0];
-      ind = i;
-      cout<<"good none 4p poly info:\t"<<polyInfo[i][0]<<'\t'<<polyInfo[i][1]<<'\t'<<polyInfo[i][2]<<'\t'<<polyInfo[i][3]<<'\t'<<polyInfo[i][4]<<polyInfo[i][5]<<endl;
-      break;
-    }
-  }
- }
-
 
  if(!is_the_ca_const){
     eucFIt++;
@@ -405,9 +377,7 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
 
  if(goodIndex==-1 || polyInfo[ind][2]>=100) return drawing;
 
-
-
-  cout<<"the goodIndex:\t"<<goodIndex<<endl;
+ cout<<"the goodIndex:\t"<<goodIndex<<endl;
 
   if((poly[goodIndex].size()==4 && polyInfo[ind][2]<100)||
      (poly[goodIndex].size()==2 && polyInfo[ind][4]<400)||
@@ -436,7 +406,7 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
 
     // if(euc>img.cols/5) return drawing;
     // if(euc>img.cols/10) {
-    if((euc>img.cols/10)){
+    if((euc>img.cols/5)){
       if((euc<(0.5*tempvecy)) || (eucFilterIt>50)) goto lab;
       eucFilterIt++;
       cout<<"eucFilterIt\t:\t"<<eucFilterIt<<endl;
@@ -450,7 +420,7 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
     }
 
     flag = true;
-    if(polyInfo[ind][4]>(enteranceArea)) {
+    if(polyInfo[ind][4]>(2*enteranceArea/3)) {
       cout<<"enter!!\n";
       enterance = true;
     }
@@ -472,44 +442,6 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
   return drawing;
 }
 
-bool detectionSafetyCheck(vector<int>& buf ,const int data, const int cnt, const bool is_there_a_wndw, const bool ld, int& it){
-  // if(!is_there_a_wndw) return false;
-    // vector<int> buf;
-    // int temp[TIME_INTERVAL];
-    cout << "\nentered dsc,    it: " <<it<< '\n';
-    const int TIME_INTERVAL = 20, NEW_DATA_ACCEPTANCE_TIME = 50;
-    bool is_it_safe = true, passed_filter = false;
-    float av = vectorAverage(buf), sd = vectorSD(buf), diff = abs(data-av);
-    // std::vector<int>::iterator it = buf.begin();
-
-    if(diff<=(2*sd) || diff<70) passed_filter = true;
-    cout<<"the buffer:\t";
-    for(int i=0; i<buf.size(); ++i){
-      cout<<"  "<<buf[i];
-    }
-    cout<<endl;
-    // absdf2 = diff;
-      if(cnt<TIME_INTERVAL && (passed_filter || cnt<=10) && is_there_a_wndw){
-        //
-        buf.push_back(data);
-        cout<<"1the sd:\t\t"<<sd<<"\t\tdifference:\t\t"<<diff<<endl;
-        it=0;
-        // is_it_safe = true;
-      }
-      else if((passed_filter || ld || sd==0) && is_there_a_wndw){
-        shiftVector(buf, data);
-        cout<<"3the sd:\t\t"<<sd<<"\t\tdifference:\t\t"<<diff<<"\t\tld:"<<ld<<endl;
-        it=0;
-      }
-      else if(is_there_a_wndw){
-        cout<<"4the sd:\t\t"<<sd<<"\t\tdifference:\t\t"<<diff<<endl;
-        is_it_safe = false;
-        if(it>=NEW_DATA_ACCEPTANCE_TIME) is_it_safe = true;
-        it++;
-      }
-      return is_it_safe;
-}
-
 void rectangleGeometric(vector<Point> points, Mat pic, int& dx, int& dy){
   int xc=0, yc=0, xpc = (pic.cols/2)-1, ypc = (pic.rows/2)-1;
   unsigned int max=0, may=0, mix=10e6, miy=10e6;
@@ -527,6 +459,7 @@ void rectangleGeometric(vector<Point> points, Mat pic, int& dx, int& dy){
 
 float arCalculate(vector<Point> points,  Mat pic){
   if(points.size() == 1) return 10e6;
+  int borderPoints=0;
   vector<Point2d> sorted;
   // cout<<"num of pts:\t\t\t"<<points.size()<<endl;
   unsigned int max=0, may=0, mix=10e6, miy=10e6;
@@ -540,7 +473,10 @@ float arCalculate(vector<Point> points,  Mat pic){
     if(may<points[i].y) may = points[i].y;
     if(mix>points[i].x) mix = points[i].x;
     if(miy>points[i].y) miy = points[i].y;
+    if(abs(points[i].x-pic.cols)<5 || points[i].x<5 &&
+       abs(points[i].y-pic.rows)<5 || points[i].y<5) borderPoints++ ;
   }
+  if(borderPoints>=3) return 10e6;
   for(int i=0; i<points.size(); ++i){
     if(max == points[i].x && pmax==Point(0,0)) pmax = points[i];
     if(may == points[i].y && pmay==Point(0,0)) pmay = points[i];
@@ -580,29 +516,11 @@ void shiftVector(vector<int>& in, int x){
   return;
 }
 
-float vectorAverage(vector<int> v){
-  float ave, sum=0;
-  for(int i=0; i<v.size(); ++i){
-    sum += float(v[i]);
-    }
-  ave = sum/v.size();
-}
-
-float vectorSD(vector<int> v){
-  float ave, sd, var=0;
-  ave = vectorAverage(v);
-  for(int i=0; i<v.size(); ++i){
-    var += float((v[i]-ave)*(v[i]-ave))/v.size();
-  }
-  sd = sqrt(var);
-  return sd;
-  }
-
-  bool sortcol( const vector<float>& v1, const vector<float>& v2 ) {
+bool sortcol( const vector<float>& v1, const vector<float>& v2 ) {
    return v1[1] < v2[1];
   }
 
-  bool fourPSort (vector<Point> cont, vector<Point2d> &res) {
+bool fourPSort (vector<Point> cont, vector<Point2d> &res) {
     if(cont.size()==0)
     {
       cout << "empty" << endl;
@@ -618,9 +536,7 @@ float vectorSD(vector<int> v){
     vector<Point2d>  c1, c2, c3, c4;
     vector<Point2d>  t1, t2, t3, t4;
 
-
     for(int i=0; i<cont.size(); ++i){
-      //////
         if((cont[i].x<=xm)&&(cont[i].y>=ym)){
           c1.push_back(cont[i]);
         }
@@ -633,34 +549,20 @@ float vectorSD(vector<int> v){
         if((cont[i].x<xm)&&(cont[i].y<ym)){
           c4.push_back(cont[i]);
         }
-        //////
-        // cout<<2<<endl;
     }
 
     cout << c1.size() << " " << c2.size() << " " << c3.size() << " " << c4.size() << endl;
 
     if(c1.size()>1){
-      // t1 = c1;
-      // c1.clear();
-      // c1 = fourPSort(c1);
       return false;
     }
     if(c2.size()>1){
-      // t2 = c2;
-      // c2.clear();
-      // c2 = fourPSort(c2);
       return false;
     }
     if(c3.size()>1){
-      // t3 = c3;
-      // c3.clear();
-      // c3 = fourPSort(c3);
       return false;
     }
     if(c4.size()>1){
-      // t4 = c4;
-      // c4.clear();
-      // c4 = fourPSort(c4);
       return false;
     }
 
