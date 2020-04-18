@@ -3,6 +3,8 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+#include "opencv2/videoio.hpp"
+#include "opencv2/opencv.hpp"
 #include <cv_bridge/cv_bridge.h>
 #include "simulate/imtodyn.h"
 #include "simulate/dyntoim.h"
@@ -26,6 +28,12 @@ int vecy, vecz, tempvecy, tempvecz, tempArea, iter=0, eucFilterIt=0, eucFIt=0, a
 bool lost = false;
 bool flag = false, msgFlag = false, long_distance = false, enterance = false;
 Point oldP, newP;
+
+Mat camera_matrix = (Mat_<double>(3,3) << 376.744103, 0.000000, 319.513089, 0.000000, 376.572581, 178.056011, 0.000000, 0.000000, 1.000000);
+Mat distortion_matrix = (Mat_<double>(5,1) << -0.000545, 0.000835, -0.000038, -0.000143, 0.000000);
+vector<Point3d> real_rect_info{Point3d(0,0,0), Point3d(1.5,0,0), Point3d(1.5,1,0), Point3d(0,1,0)};
+vector<Point2d> found_rect_info;
+Mat rotation_vec, translation_vec;
 
 static void on_canny1_trackbar(int, void *)
 {
@@ -79,13 +87,15 @@ Mat imageProcessing(Mat);
 void rectangleGeometric(vector<Point>,  Mat, int&, int&);
 Mat preProcessing(Mat);
 vector<vector<Point>> contourExtraction(Mat);
-Mat contourManagement(  vector<vector<Point>>, Mat);
+Mat contourManagement(  vector<vector<Point>>, Mat, vector<Point>&);
 bool detectionSafetyCheck(vector<int>& ,const int, const int, const bool, const bool, int&);
 void shiftVector(vector<int>&, int);
 float vectorAverage(vector<int>);
 float vectorSD(vector<int>);
 bool sortcol( const vector<float>&, const vector<float>&);
 bool fourPSort (vector<Point>, vector<Point2d>&);
+vector<Point> reconstructRect(vector<Point>&);
+Mat perception3D(Mat, vector<Point>);
 
 void imageCallback(const sensor_msgs::ImageConstPtr& msg)    //will get called when a new image has arrived on the
 {      //"camera/image" topic. Although the image may have been sent in some arbitrary transport-specific message type,
@@ -145,19 +155,21 @@ int main(int argc, char **argv)
 
     cout<<"\npubCount:\t\t"<<pubCount<<endl;
 
-    if(flag && safety_check_y && safety_check_z){
+    if(flag /*&& safety_check_y && safety_check_z*/){
       msg.y = vecy;
       msg.z = vecz;
       msg.enterance = enterance;
-      cout<<"impro published data\tmsg.y:"<<msg.y<<"\tmsg.z:\t"<<msg.z<<endl;
+      cout<<"\n\nimpro published data:::\nmsg.y:"<<msg.y<<"\tmsg.z:\t"<<msg.z<<endl;
+      cout<<"translation_vec: "<<translation_vec.at<double>(0) << " " << translation_vec.at<double>(1) << " " << translation_vec.at<double>(2) <<endl;
+      cout<<"rotation_vec: "<<rotation_vec.at<double>(0) << " " << rotation_vec.at<double>(1) << " " << rotation_vec.at<double>(2) <<endl;
       pubinfo.publish(msg);
       flag = false;
     }
     else {
-      if(!(safety_check_y && safety_check_z)) cout<<"Not so safe!\n"<<"data might be wrong\tmsg.y:\t"<<vecy<<"\tmsg.z:\t"<<vecz<<endl;
+      // if(!(safety_check_y && safety_check_z)) cout<<"Not so safe!\n"<<"data might be wrong\tmsg.y:\t"<<vecy<<"\tmsg.z:\t"<<vecz<<endl;
       cout<<"nothing published\n";
-      safety_check_y = true;
-      safety_check_z = true;
+      // safety_check_y = true;
+      // safety_check_z = true;
     }
     cout<<"\n\n\nIteration End\n-----------------------------------------------------------------------\n";
     ros::spinOnce();
@@ -173,17 +185,19 @@ Mat imageProcessing(Mat imin){
 
   cout<<"\n~~~~~\nIP is called\n";
 
-   Mat imout, result;
+   Mat imout, drawing, result;
    vector<vector<Point> > contours, poly;
-
-   vector<Point2d> contor;
+   vector<Point> window;
 
    imout = preProcessing(imin);
 
    contours = contourExtraction(imout);
 
-   result = contourManagement(contours, imin);
+   drawing = contourManagement(contours, imin, window);
 
+   result = perception3D(drawing, window);
+
+   // imshow("detected window", drawing);
    imshow("processed pic", result);
    cout<<"\nIP is out\n~~~~~\n";
    return result;
@@ -235,10 +249,9 @@ vector<vector<Point>> contourExtraction(Mat img){
   return polies;
 }
 
-Mat contourManagement(  vector<vector<Point>> poly, Mat img){
+Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res){
   Mat drawing;
   vector<Point> conto;
-  // vector<vector<Point> > poly;
   vector<vector<float> > polyInfo;
   float ar, maxAreaDiff, changeFactor, areaDiff, area,  picChord, polyScore, centerDist, arDiff, caseEuc;
   int goodIndex=-1, ind=0, case_z, case_y; // = (img.total()/450);
@@ -253,20 +266,12 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
 
   // if(lost) iter = 0;
   is_it_the_first = (iter==0);
-//   if(is_it_the_first || eucFIt>20){is_the_ca_const = true;}
-//   else {
-//     is_the_ca_const = (caseEuc<(img.cols/10) );
-//     if((caseEuc<(0.5*tempvecy)) || (eucFilterIt>50)) is_the_ca_const = true;
-// }
   drawing = img.clone();
 
   // cout<<"max area diff:\t\t"<<maxAreaDiff<<endl;
   cout<<"\noldP: \t"<<oldP<<endl;;
 
   for( float i = 0; i< poly.size(); i++ ){
-    // drawContours( drawing, contours, i, Scalar(0,0,255), 2, 8);
-    // approxPolyDP(Mat(contours[i]), conto, 13, true);
-    // poly.push_back(conto);
     conto = poly[i];
     ar = arCalculate(conto, img);
     if(conto.size()==2) area = abs(conto[0].x-conto[1].x)*abs(conto[0].y-conto[1].y);
@@ -286,11 +291,11 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
     if(conto.size()==1) polyInfo.push_back({i, 1000, 1000, 1, 0, 1000, 0,0,0,1000,1000});
     else polyInfo.push_back({i, polyScore, arDiff, float(conto.size()), area, ar,
                             abs(area-tempArea)/tempArea, (2*centerDist/picChord),
-                            (0.5*arDiff/shapeAR), centerDist, float(case_y), float(case_z)});
+                            float(0.5*arDiff/shapeAR), centerDist, float(case_y), float(case_z)});
   }
   int m = polyInfo.size();
   int n = polyInfo[0].size();
-  // cout<<"unsorted:\n";
+  // cout<<"unsorted polies:\n";
   // for (int i=0; i<m; i++)
   // {
   //     for (int j=0; j<n ;j++)
@@ -298,13 +303,13 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
   //     cout << endl;
   // }
   sort(polyInfo.begin(), polyInfo.end(),sortcol);
-  cout<<"sorted:\n";
+  cout<<"sorted polies:\n";
 
   for (int i=0; (i<m)&&(polyInfo[i][2]<100); i++)
   {
 
       for (int j=0; j<n ;j++)
-          cout << polyInfo[i][j] << "  ";
+          cout << polyInfo[i][j] << ",";
       cout /*<<polyInfo[i][4]*/<< endl;
   }
 
@@ -352,8 +357,8 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
        && (is_it_4p == in_fours) && is_the_ca_const && is_the_ar_ok) {
          goodIndex = polyInfo[i][0];
          ind = i;
-         if(in_fours) cout<<"good 4p poly info:\t";
-         else cout<<"good none 4p poly info:\t";
+         if(in_fours) cout<<"---good 4p poly info:\t";
+         else cout<<"---good none 4p poly info:\t";
          for(int k=0; k<polyInfo[ind].size(); ++k) cout<<polyInfo[ind][k]<<'\t';
          cout<<endl;
          cout<<"area data:   before:\t"<< tempArea<<"\tnew:\t"<<polyInfo[i][4] <<endl;
@@ -378,6 +383,9 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
  if(goodIndex==-1 || polyInfo[ind][2]>=100) return drawing;
 
  cout<<"the goodIndex:\t"<<goodIndex<<endl;
+
+ // ostringstream name;
+ // name << "im_" << iter << ".jpg";
 
   if((poly[goodIndex].size()==4 && polyInfo[ind][2]<100)||
      (poly[goodIndex].size()==2 && polyInfo[ind][4]<400)||
@@ -426,20 +434,94 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img){
     }
 
     if(polyInfo[ind][3]==2) tempArea = abs(poly[goodIndex][0].x-poly[goodIndex][1].x)*abs(poly[goodIndex][0].y-poly[goodIndex][1].y);
-    else if(polyInfo[ind][3]==3) tempArea = polyInfo[ind][4];
+    else if(polyInfo[ind][3]==3) {tempArea = polyInfo[ind][4];/* imwrite(name.str(),img);*/}
     else tempArea = polyInfo[ind][4];
-
-
 
     drawContours( drawing, poly, goodIndex, Scalar(0,255,0), 2, 8);
     for (int k=0; k<poly[goodIndex].size(); ++k){
       circle(drawing, poly[goodIndex][k], 10, Scalar(0,0,0), 3);
     }
+    res = poly[goodIndex];
 
     ++iter;
   }
 
   return drawing;
+}
+
+Mat perception3D(Mat img, vector<Point> win){
+  vector<Point> rect;
+  vector<Point2d> axis_2d;
+  vector<Point3d> axis_3d{Point3d(0,0,0), Point3d(0.5,0,0), Point3d(0,0.5,0), Point3d(0,0,0.5)};
+  Mat pic = img.clone();
+  rect = reconstructRect(win);
+  if(!fourPSort(rect, found_rect_info)) return img;
+
+  solvePnP(real_rect_info, found_rect_info, camera_matrix, distortion_matrix, rotation_vec, translation_vec);
+  projectPoints(axis_3d, rotation_vec, translation_vec, camera_matrix, distortion_matrix, axis_2d);
+
+  for(int i=0; i<axis_2d.size(); ++i){
+    line(pic, axis_2d[0], axis_2d[1], Scalar(0,255,255), 1, CV_AA);
+    line(pic, axis_2d[0], axis_2d[2], Scalar(255,0,255), 1, CV_AA);
+    line(pic, axis_2d[0], axis_2d[3], Scalar(255,255,0), 1, CV_AA);
+  }
+  return pic;
+}
+
+vector<Point> reconstructRect(vector<Point> &contour){
+  if(contour.size()==2){
+    return {contour[0], Point(contour[0].x, contour[1].y), contour[1], Point(contour[1].x, contour[0].y)};
+  }
+  else if(contour.size()==3){
+    Point diam1_1, diam1_2, diam2_1, diam2_2;
+    int diff = -1;;
+    for(int i=0; i<3; ++i){
+      cout<<"  "<<contour[i];
+      for(int j=0; j<3; ++j){
+        if(i==j) continue;
+        // diff = abs(contour[i].x-contour[j].x)+abs(contour[i].y-contour[j].y);
+        if(diff<abs(contour[i].x-contour[j].x)+abs(contour[i].y-contour[j].y)){
+          diff = abs(contour[i].x-contour[j].x)+abs(contour[i].y-contour[j].y);
+          // rect.clear();
+          diam1_1 = contour[i];
+          diam1_2 = contour[j];
+        }
+      }
+    }
+    for(int i=0; i<3; ++i){
+    if(contour[i]!=diam1_1 && contour[i]!=diam1_2) diam2_1 = contour[i];
+    }
+    diam2_2 = diam1_2 + diam1_1 - diam2_1;
+    cout<<'\n'<<diam1_1<<'\t'<<diam1_2<<'\t'<<diam2_1<<'\t'<<diam2_2<<endl;
+    return {diam1_1,diam1_2,diam2_1,diam2_2};
+  }
+  else if(contour.size()==4){
+    return contour;
+  }
+  else {
+    Point p1, p2,p3,p4;
+    int xpy, xmy, min_xpy=1e6, max_xpy=-1, min_xmy=1e6, max_xmy=-1;
+    for(int i=0; i<contour.size(); ++i){
+      xpy = contour[i].x+contour[i].y;
+      xmy = contour[i].x-contour[i].y;
+      if(min_xpy>=xpy) {min_xpy = xpy;
+        p1 = contour[i];
+      }
+      if(min_xmy>=xmy) {
+        min_xmy = xmy;
+        p2 = contour[i];
+      }
+      if(max_xpy<=xpy) {
+        max_xpy = xpy;
+        p3 = contour[i];
+      }
+      if(max_xmy<=xmy) {
+        max_xmy = xmy;
+        p4 = contour[i];
+      }
+    }
+    return {p1,p2,p3,p4};
+    }
 }
 
 void rectangleGeometric(vector<Point> points, Mat pic, int& dx, int& dy){
