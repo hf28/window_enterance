@@ -15,7 +15,7 @@ using namespace std;
 const int max_canny1 = 800;
 const int max_canny2 = 800;
 const int max_GuKernelSize = 50;
-const float shapeAR = 1.5;
+// const float shapeAR = 1.5;
 const String window_capture_name = "Video Capture";
 const int max_value_H = 360/2;
 const int max_value = 255;
@@ -23,17 +23,79 @@ int low_H = 15, low_S = 174, low_V = 0;
 int high_H = 23, high_S = 255, high_V = 255;
 int canny1 = 131, canny2 = 0, GuKernelSize = 7;
 int ity=0, itz=0;
-float GuSigma = 1.2, euc = 0;
+float shapeAR ,GuSigma = 1.2, euc = 0;
 int vecy, vecz, tempvecy, tempvecz, tempArea, iter=0, eucFilterIt=0, eucFIt=0, areaIt=0;
 bool lost = false;
 bool flag = false, msgFlag = false, long_distance = false, enterance = false;
 Point oldP, newP;
+
+Mat image;
+Point seed;
+bool is_set=false;
+vector<Point> window;
 
 Mat camera_matrix = (Mat_<double>(3,3) << 376.744103, 0.000000, 319.513089, 0.000000, 376.572581, 178.056011, 0.000000, 0.000000, 1.000000);
 Mat distortion_matrix = (Mat_<double>(5,1) << -0.000545, 0.000835, -0.000038, -0.000143, 0.000000);
 vector<Point3d> real_rect_info{Point3d(0,0,0), Point3d(1.5,0,0), Point3d(1.5,1,0), Point3d(0,1,0)};
 vector<Point2d> found_rect_info;
 Mat rotation_vec, translation_vec;
+
+float arCalculate(vector<Point>, Mat);
+float euclideanDist(Point, Point);
+Mat imageProcessing(Mat);
+void rectangleGeometric(vector<Point>,  Mat, int&, int&);
+Mat preProcessing(Mat);
+vector<vector<Point>> contourExtraction(Mat, Mat&, vector<vector<Point>>&);
+Mat contourManagement(  vector<vector<Point>>, Mat, vector<Point>&);
+bool detectionSafetyCheck(vector<int>& ,const int, const int, const bool, const bool, int&);
+void shiftVector(vector<int>&, int);
+float vectorAverage(vector<int>);
+float vectorSD(vector<int>);
+bool sortcol( const vector<float>&, const vector<float>&);
+bool fourPSort (vector<Point>, vector<Point2d>&);
+vector<Point> reconstructRect(vector<Point>&);
+Mat perception3D(Mat, vector<Point>);
+void setWindow(Mat);
+
+static void onMouse( int event, int x, int y, int, void* )
+{
+    if( event != EVENT_LBUTTONDOWN ) return;
+    vector<vector<Point>> cntrs, wins;
+    Mat pic, im;
+    Point seed = Point(x,y);
+    cout<<seed<<endl;
+
+    im = image.clone();
+    pic = preProcessing(im);
+    cntrs = contourExtraction(pic, im, wins);
+
+      int minDist=1e7, dist, choiceIndex=-1;
+        for(int i=0; i<wins.size(); ++i){
+          // std::cout << pointPolygonTest(wins[i], seed, false) << '\n';
+          if(pointPolygonTest(wins[i], seed, false)!=-1){
+            // std::cout << "here" << '\n';
+            dist = pointPolygonTest(wins[i], seed, true);
+            if(minDist>dist) {
+              // std::cout << "MM" << '\n';
+              minDist = dist;
+              choiceIndex = i;
+              // is_set = true;
+            }
+          }
+        }
+        shapeAR = arCalculate(cntrs[choiceIndex], im);
+        if(shapeAR>100) return;
+        tempArea = contourArea(wins[choiceIndex]);
+        rectangleGeometric(cntrs[choiceIndex], im, tempvecy, tempvecz);
+        oldP = Point(tempvecy, tempvecz);
+        drawContours( im, wins, choiceIndex, Scalar(255,0,0), 2, 8);
+      // }
+      // else is_set = false;
+      std::cout << "set info:\t" <<seed<<'\t'<< shapeAR <<'\t'<< tempArea <<'\t'<< tempvecy <<'\t'<<tempvecz<< '\n';
+      imshow("operator desicion", im);
+
+    is_set = true;
+}
 
 static void on_canny1_trackbar(int, void *)
 {
@@ -81,42 +143,33 @@ static void on_high_V_thresh_trackbar(int, void *)
     setTrackbarPos("High V", window_capture_name, high_V);
 }
 
-float arCalculate(vector<Point>, Mat);
-float euclideanDist(Point, Point);
-Mat imageProcessing(Mat);
-void rectangleGeometric(vector<Point>,  Mat, int&, int&);
-Mat preProcessing(Mat);
-vector<vector<Point>> contourExtraction(Mat);
-Mat contourManagement(  vector<vector<Point>>, Mat, vector<Point>&);
-bool detectionSafetyCheck(vector<int>& ,const int, const int, const bool, const bool, int&);
-void shiftVector(vector<int>&, int);
-float vectorAverage(vector<int>);
-float vectorSD(vector<int>);
-bool sortcol( const vector<float>&, const vector<float>&);
-bool fourPSort (vector<Point>, vector<Point2d>&);
-vector<Point> reconstructRect(vector<Point>&);
-Mat perception3D(Mat, vector<Point>);
 
 void imageCallback(const sensor_msgs::ImageConstPtr& msg)    //will get called when a new image has arrived on the
 {      //"camera/image" topic. Although the image may have been sent in some arbitrary transport-specific message type,
   cout<<"Iteration Begin\n\n\n";
   msgFlag = true;
-  try  // notice that the callback need only handle the normal sensor_msgs/Image type. All image encoding/decoding is
-  {    //handled automagically
-    // cv::imshow("view", cv_bridge::toCvShare(msg, "bgr8")->image);  //We convert the ROS image message to an OpenCV image
-                                                                      //with BGR pixel encoding, then show it in a display window.
-    Mat frame, frm, img = cv_bridge::toCvShare(msg, "bgr8")->image;
+    Mat frame, frm;
+    image = cv_bridge::toCvShare(msg, "bgr8")->image;
     // imshow("token pic", img);
-    frm = img.clone();
-    frame = imageProcessing(frm);
+    frm = image.clone();
+
+    if(!is_set) {
+      cout<<"is_set\t"<<is_set<<endl;
+      setWindow(frm);
+    }
+
+    else{
+      cout<<"is_set\t"<<is_set<<endl;
+      frame = imageProcessing(image);
+    }
     cout<<"flag:\t"<<flag<<endl;
     // imshow("processed pic", frame);
     cv::waitKey(30);
-  }
-  catch (cv_bridge::Exception& e)
-  {
-    ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
-  }
+//   }
+//   catch (cv_bridge::Exception& e)
+//   {
+//     ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
+//   }
 }
 
 void dynCallback(const simulate::dyntoim msg)
@@ -180,25 +233,43 @@ int main(int argc, char **argv)
   return 0;
 }
 
+void setWindow(Mat frm){
+  namedWindow("operator desicion");
+  setMouseCallback( "operator desicion", onMouse, 0 );
+
+  vector<vector<Point>> cntrs, wins;
+  Mat img = frm.clone();
+
+  img = preProcessing(frm);
+  cntrs = contourExtraction(img, frm, wins);
+
+
+  imshow("operator desicion", frm);
+  waitKey();
+  destroyAllWindows();
+}
+
 
 Mat imageProcessing(Mat imin){
 
   cout<<"\n~~~~~\nIP is called\n";
 
-   Mat imout, drawing, result;
-   vector<vector<Point> > contours, poly;
+   Mat imin_, imout, drawing, result;
+   vector<vector<Point>> contours, poly;
    vector<Point> window;
+
+   imin_ = imin.clone();
 
    imout = preProcessing(imin);
 
-   contours = contourExtraction(imout);
+   contours = contourExtraction(imout, imin_, poly);
 
    drawing = contourManagement(contours, imin, window);
 
    result = perception3D(drawing, window);
 
-   // imshow("detected window", drawing);
-   imshow("processed pic", result);
+   // imshow("processed pic", imin_);
+   imshow("window", result);
    cout<<"\nIP is out\n~~~~~\n";
    return result;
 }
@@ -233,23 +304,24 @@ Mat preProcessing(Mat imin){
   return out;
 }
 
-vector<vector<Point>> contourExtraction(Mat img){
+vector<vector<Point>> contourExtraction(Mat img, Mat &img0, vector<vector<Point>> &windows){
   vector<vector<Point> > contours, polies;
   vector<Vec4i> hierarchy;
   vector<Point> conto;
 
   findContours( img, contours, hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_TC89_KCOS, Point(0, 0) );
   for( float i = 0; i< contours.size(); i++ ){
-    // drawContours( drawing, contours, i, Scalar(0,0,255), 2, 8);
     approxPolyDP(Mat(contours[i]), conto, 13, true);
     polies.push_back(conto);
+    windows.push_back(reconstructRect(conto));
+    drawContours( img0, windows, i, Scalar(0,0,255), 2, 8);
   }
   cout<<"num of contours: \t"<<contours.size()<<endl;
 
   return polies;
 }
 
-Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res){
+Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/*, vector<int> win*/){
   Mat drawing;
   vector<Point> conto;
   vector<vector<float> > polyInfo;
@@ -268,6 +340,8 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res)
   is_it_the_first = (iter==0);
   drawing = img.clone();
 
+  oldP = Point(tempvecy,tempvecz);
+
   // cout<<"max area diff:\t\t"<<maxAreaDiff<<endl;
   cout<<"\noldP: \t"<<oldP<<endl;;
 
@@ -278,14 +352,11 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res)
     else if(conto.size()==3) area = 2*contourArea(conto);
     else area = contourArea(conto);
     rectangleGeometric(conto, drawing, case_y, case_z);
-    if(is_it_the_first) oldP = Point(case_y,case_z);
+    // if(is_it_the_first) oldP = Point(case_y,case_z);
     centerDist = euclideanDist(oldP, Point(case_y,case_z));
     arDiff = abs(ar-shapeAR);
 
-    if(iter==0) polyScore = arDiff;
-    else{
-      polyScore = abs(area-tempArea)/tempArea + (2*centerDist/picChord) + (arDiff/shapeAR);
-    }
+    polyScore = abs(area-tempArea)/tempArea + (2*centerDist/picChord) + (arDiff/shapeAR);
 
     // if(iter==0)
     if(conto.size()==1) polyInfo.push_back({i, 1000, 1000, 1, 0, 1000, 0,0,0,1000,1000});
@@ -303,6 +374,7 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res)
   //     cout << endl;
   // }
   sort(polyInfo.begin(), polyInfo.end(),sortcol);
+  std::cout << "polyInfo size:\t"<< m << '\n';
   cout<<"sorted polies:\n";
 
   for (int i=0; (i<m)&&(polyInfo[i][2]<100); i++)
@@ -319,9 +391,9 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res)
 
   for(int i=0; i<poly.size(); ++i){
 
-    if(iter==0) {tempArea = polyInfo[i][4];
-      // goodIndex = 0;
-    }
+    // if(iter==0) {tempArea = polyInfo[i][4];
+    //   // goodIndex = 0;
+    // }
 
     is_it_4p = (polyInfo[i][3]==4)/*||is_it_close_enough*/;
     if(!is_it_4p && in_fours) {
@@ -341,7 +413,7 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res)
     areaDiff = abs(polyInfo[i][4]-tempArea);
     cout<<"areaDiff:\t"<<areaDiff<<endl;
 
-    is_the_ca_const = (polyInfo[i][9]<(picChord/3)) || (iter<10);
+    is_the_ca_const = (polyInfo[i][9]<(picChord/3))/* || (iter<10)*/;
     is_the_area_const = areaDiff<maxAreaDiff;/*||(areaIt>100);*/
     is_it_close_enough = (tempArea>=1e4)&&(tempArea<enteranceArea);
     is_it_the_full_frame = polyInfo[i][4]>(img.total()-1e4);
@@ -353,7 +425,7 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res)
     cout<<is_it_the_first <<"  " << is_the_ca_const<<"  "<<is_it_4p <<"  "<< is_the_ar_ok
         <<"  "<< is_the_area_const<<"  "<<is_it_close_enough <<"  "<< is_it_the_full_frame<<"  "<<endl;
 
-    if((is_the_area_const|| is_it_the_first || is_it_close_enough)&& !is_it_the_full_frame
+    if((is_the_area_const || is_it_close_enough)&& !is_it_the_full_frame
        && (is_it_4p == in_fours) && is_the_ca_const && is_the_ar_ok) {
          goodIndex = polyInfo[i][0];
          ind = i;
@@ -402,12 +474,11 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res)
 
     rectangleGeometric(poly[goodIndex] ,drawing, vecy, vecz);
 
-    if(iter==0){
-    tempvecy = vecy;
-    tempvecz = vecz;
-    }
+    // if(iter==0){
+    // tempvecy = vecy;
+    // tempvecz = vecz;
+    // }
 
-    oldP = Point(tempvecy,tempvecz);
     newP = Point(vecy,vecz);
     euc = euclideanDist(oldP,newP);
     cout<<"iter:\t"<<iter<<"\tdata before:\t"<<tempvecy<<'\t'<<tempvecz<<'\t'<<"new data:\t"<<vecy<<'\t'<<vecz<<'\t'<<"euc:  "<<euc<<endl;
