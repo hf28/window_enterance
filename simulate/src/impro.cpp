@@ -42,7 +42,7 @@ Mat rotation_vec, translation_vec;
 
 float arCalculate(vector<Point>, Mat);
 float euclideanDist(Point, Point);
-Mat imageProcessing(Mat);
+Mat windowDetection(Mat);
 void rectangleGeometric(vector<Point>,  Mat, int&, int&);
 Mat preProcessing(Mat);
 vector<vector<Point>> contourExtraction(Mat, Mat&, vector<vector<Point>>&);
@@ -91,7 +91,7 @@ static void onMouse( int event, int x, int y, int, void* )
         drawContours( im, wins, choiceIndex, Scalar(255,0,0), 2, 8);
       // }
       // else is_set = false;
-      std::cout << "set info:\t" <<seed<<'\t'<< shapeAR <<'\t'<< tempArea <<'\t'<< tempvecy <<'\t'<<tempvecz<< '\n';
+      std::cout << "set info:\t" <<oldP<<'\t'<< shapeAR <<'\t'<< tempArea <<'\t'<< tempvecy <<'\t'<<tempvecz<< '\n';
       imshow("operator desicion", im);
 
     is_set = true;
@@ -160,7 +160,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr& msg)    //will get called w
 
     else{
       cout<<"is_set\t"<<is_set<<endl;
-      frame = imageProcessing(image);
+      frame = windowDetection(image);
     }
     cout<<"flag:\t"<<flag<<endl;
     // imshow("processed pic", frame);
@@ -238,7 +238,7 @@ void setWindow(Mat frm){
   setMouseCallback( "operator desicion", onMouse, 0 );
 
   vector<vector<Point>> cntrs, wins;
-  Mat img = frm.clone();
+  Mat img ;//= frm.clone();
 
   img = preProcessing(frm);
   cntrs = contourExtraction(img, frm, wins);
@@ -250,9 +250,9 @@ void setWindow(Mat frm){
 }
 
 
-Mat imageProcessing(Mat imin){
+Mat windowDetection(Mat imin){
 
-  cout<<"\n~~~~~\nIP is called\n";
+  cout<<"\n~~~~~\nWD is called\n";
 
    Mat imin_, imout, drawing, result;
    vector<vector<Point>> contours, poly;
@@ -327,7 +327,7 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
   vector<vector<float> > polyInfo;
   float ar, maxAreaDiff, changeFactor, areaDiff, area,  picChord, polyScore, centerDist, arDiff, caseEuc;
   int goodIndex=-1, ind=0, case_z, case_y; // = (img.total()/450);
-  bool four_found = false, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_the_first,
+  bool is_it_4p, is_the_ar_ok, is_the_area_const, is_it_the_first,
        is_it_close_enough, is_it_almost_here, is_the_ca_const, is_it_the_full_frame,
        the_close_angle_case, in_fours=true, gab=true;
   int enteranceArea = 2*img.total()/5;
@@ -351,7 +351,9 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
     if(conto.size()==2) area = abs(conto[0].x-conto[1].x)*abs(conto[0].y-conto[1].y);
     else if(conto.size()==3) area = 2*contourArea(conto);
     else area = contourArea(conto);
-    rectangleGeometric(conto, drawing, case_y, case_z);
+    // area = contourArea(reconstructRect(conto));
+    // rectangleGeometric(conto, drawing, case_y, case_z);
+    rectangleGeometric(conto, img, case_y, case_z);
     // if(is_it_the_first) oldP = Point(case_y,case_z);
     centerDist = euclideanDist(oldP, Point(case_y,case_z));
     arDiff = abs(ar-shapeAR);
@@ -362,7 +364,7 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
     if(conto.size()==1) polyInfo.push_back({i, 1000, 1000, 1, 0, 1000, 0,0,0,1000,1000});
     else polyInfo.push_back({i, polyScore, arDiff, float(conto.size()), area, ar,
                             abs(area-tempArea)/tempArea, (2*centerDist/picChord),
-                            float(0.5*arDiff/shapeAR), centerDist, float(case_y), float(case_z)});
+                            float(arDiff/shapeAR), centerDist, float(case_y), float(case_z)});
   }
   int m = polyInfo.size();
   int n = polyInfo[0].size();
@@ -405,9 +407,9 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
       else continue;
     }
 
-    if(tempArea >= enteranceArea/3) maxAreaDiff = (35*tempArea)/10;
+    if(tempArea >= enteranceArea/3) maxAreaDiff = (3.5*tempArea)/10;
     else if(tempArea >= enteranceArea/9) maxAreaDiff = (2.3*tempArea)/10;
-    else if(long_distance) maxAreaDiff = (3.5*tempArea)/10;
+    else if(long_distance) maxAreaDiff = (4*tempArea)/10;
     else maxAreaDiff = (1.8*tempArea)/10;
 
     areaDiff = abs(polyInfo[i][4]-tempArea);
@@ -433,8 +435,7 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
          else cout<<"---good none 4p poly info:\t";
          for(int k=0; k<polyInfo[ind].size(); ++k) cout<<polyInfo[ind][k]<<'\t';
          cout<<endl;
-         cout<<"area data:   before:\t"<< tempArea<<"\tnew:\t"<<polyInfo[i][4] <<endl;
-         four_found = true;
+         cout<<"area data:   before:\t"<< tempArea<<"\tnew:\t"<<polyInfo[ind][4] <<endl;
          break;
     }
 
@@ -459,14 +460,14 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
  // ostringstream name;
  // name << "im_" << iter << ".jpg";
 
-  if((poly[goodIndex].size()==4 && polyInfo[ind][2]<100)||
-     (poly[goodIndex].size()==2 && polyInfo[ind][4]<400)||
+  if((polyInfo[ind][3]==4 && polyInfo[ind][2]<100)||
+     (polyInfo[ind][3]==2 && polyInfo[ind][4]<400)||
      (is_the_area_const || is_it_the_first || is_it_close_enough)){
 
        cout<<"entered\n";
 
-    if((poly[goodIndex].size()<4 && polyInfo[ind][4]<(img.total()/500)) ||
-      (poly[goodIndex].size()==4 && polyInfo[ind][4]<(img.total()/400)))
+    if((polyInfo[ind][3]<4 && polyInfo[ind][4]<(img.total()/500)) ||
+      (polyInfo[ind][3]==4 && polyInfo[ind][4]<(img.total()/400)))
       long_distance = true;
     else long_distance = false;
 
@@ -504,12 +505,14 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
       enterance = true;
     }
 
-    if(polyInfo[ind][3]==2) tempArea = abs(poly[goodIndex][0].x-poly[goodIndex][1].x)*abs(poly[goodIndex][0].y-poly[goodIndex][1].y);
-    else if(polyInfo[ind][3]==3) {tempArea = polyInfo[ind][4];/* imwrite(name.str(),img);*/}
-    else tempArea = polyInfo[ind][4];
+    // if(polyInfo[ind][3]==2) tempArea = polyInfo[ind][4];//abs(poly[goodIndex][0].x-poly[goodIndex][1].x)*abs(poly[goodIndex][0].y-poly[goodIndex][1].y);
+    // else if(polyInfo[ind][3]==3) {tempArea = polyInfo[ind][4];/* imwrite(name.str(),img);*/}
+    // else tempArea = polyInfo[ind][4];
+    tempArea = polyInfo[ind][4];
+    shapeAR = polyInfo[ind][5];
 
     drawContours( drawing, poly, goodIndex, Scalar(0,255,0), 2, 8);
-    for (int k=0; k<poly[goodIndex].size(); ++k){
+    for (int k=0; k<polyInfo[ind][3]; ++k){
       circle(drawing, poly[goodIndex][k], 10, Scalar(0,0,0), 3);
     }
     res = poly[goodIndex];
@@ -525,17 +528,17 @@ Mat perception3D(Mat img, vector<Point> win){
   vector<Point2d> axis_2d;
   vector<Point3d> axis_3d{Point3d(0,0,0), Point3d(0.5,0,0), Point3d(0,0.5,0), Point3d(0,0,0.5)};
   Mat pic = img.clone();
-  rect = reconstructRect(win);
-  if(!fourPSort(rect, found_rect_info)) return img;
+
+  if(!fourPSort(reconstructRect(win), found_rect_info)) return img;
 
   solvePnP(real_rect_info, found_rect_info, camera_matrix, distortion_matrix, rotation_vec, translation_vec);
   projectPoints(axis_3d, rotation_vec, translation_vec, camera_matrix, distortion_matrix, axis_2d);
 
-  for(int i=0; i<axis_2d.size(); ++i){
+  // for(int i=0; i<axis_2d.size(); ++i){
     line(pic, axis_2d[0], axis_2d[1], Scalar(0,255,255), 1, CV_AA);
     line(pic, axis_2d[0], axis_2d[2], Scalar(255,0,255), 1, CV_AA);
     line(pic, axis_2d[0], axis_2d[3], Scalar(255,255,0), 1, CV_AA);
-  }
+  // }
   return pic;
 }
 
@@ -545,9 +548,9 @@ vector<Point> reconstructRect(vector<Point> &contour){
   }
   else if(contour.size()==3){
     Point diam1_1, diam1_2, diam2_1, diam2_2;
-    int diff = -1;;
+    int diff = -1;
     for(int i=0; i<3; ++i){
-      cout<<"  "<<contour[i];
+      // cout<<"  "<<contour[i];
       for(int j=0; j<3; ++j){
         if(i==j) continue;
         // diff = abs(contour[i].x-contour[j].x)+abs(contour[i].y-contour[j].y);
@@ -563,7 +566,7 @@ vector<Point> reconstructRect(vector<Point> &contour){
     if(contour[i]!=diam1_1 && contour[i]!=diam1_2) diam2_1 = contour[i];
     }
     diam2_2 = diam1_2 + diam1_1 - diam2_1;
-    cout<<'\n'<<diam1_1<<'\t'<<diam1_2<<'\t'<<diam2_1<<'\t'<<diam2_2<<endl;
+    // cout<<'\n'<<diam1_1<<'\t'<<diam1_2<<'\t'<<diam2_1<<'\t'<<diam2_2<<endl;
     return {diam1_1,diam1_2,diam2_1,diam2_2};
   }
   else if(contour.size()==4){
@@ -571,7 +574,7 @@ vector<Point> reconstructRect(vector<Point> &contour){
   }
   else {
     Point p1, p2,p3,p4;
-    int xpy, xmy, min_xpy=1e6, max_xpy=-1, min_xmy=1e6, max_xmy=-1;
+    int xpy, xmy, min_xpy=1e6, max_xpy=-1, min_xmy=1e6, max_xmy=-1e6;
     for(int i=0; i<contour.size(); ++i){
       xpy = contour[i].x+contour[i].y;
       xmy = contour[i].x-contour[i].y;
@@ -612,24 +615,22 @@ void rectangleGeometric(vector<Point> points, Mat pic, int& dx, int& dy){
 
 float arCalculate(vector<Point> points,  Mat pic){
   if(points.size() == 1) return 10e6;
-  int borderPoints=0;
+  int cornerPoints=0;
   vector<Point2d> sorted;
   // cout<<"num of pts:\t\t\t"<<points.size()<<endl;
   unsigned int max=0, may=0, mix=10e6, miy=10e6;
   Point pmax(0,0), pmay(0,0), pmix(10e6,0), pmiy(0,10e6);
   float aspRec, maxDist = -1;
-  // const f;
-  bool isHorizontal = false, is_sorted;
 
   for(int i=0; i<points.size(); ++i){
     if(max<points[i].x) max = points[i].x;
     if(may<points[i].y) may = points[i].y;
     if(mix>points[i].x) mix = points[i].x;
     if(miy>points[i].y) miy = points[i].y;
-    if(abs(points[i].x-pic.cols)<5 || points[i].x<5 &&
-       abs(points[i].y-pic.rows)<5 || points[i].y<5) borderPoints++ ;
+    if((abs(points[i].x-pic.cols)<5 || points[i].x<5) &&
+       (abs(points[i].y-pic.rows)<5 || points[i].y<5)) cornerPoints++ ;
   }
-  if(borderPoints>=3) return 10e6;
+  if(cornerPoints>=3) return 10e6;
   for(int i=0; i<points.size(); ++i){
     if(max == points[i].x && pmax==Point(0,0)) pmax = points[i];
     if(may == points[i].y && pmay==Point(0,0)) pmay = points[i];
@@ -645,7 +646,7 @@ float arCalculate(vector<Point> points,  Mat pic){
 
   // if(points.size()!=4){
 
-    if(points.size()==4 && fourPSort(points, sorted)) {
+    if(points.size()==4 && fourPSort(reconstructRect(points), sorted)) {
       aspRec = euclideanDist(sorted[0],sorted[1])/euclideanDist(sorted[0],sorted[3]);
       }
   else{
@@ -693,13 +694,13 @@ bool fourPSort (vector<Point> cont, vector<Point2d> &res) {
         if((cont[i].x<=xm)&&(cont[i].y>=ym)){
           c1.push_back(cont[i]);
         }
-        if((cont[i].x>xm)&&(cont[i].y>ym)){
+        else if((cont[i].x>xm)&&(cont[i].y>ym)){
           c2.push_back(cont[i]);
         }
-        if((cont[i].x>=xm)&&(cont[i].y<=ym)){
+        else if((cont[i].x>=xm)&&(cont[i].y<=ym)){
           c3.push_back(cont[i]);
         }
-        if((cont[i].x<xm)&&(cont[i].y<ym)){
+        else if((cont[i].x<xm)&&(cont[i].y<ym)){
           c4.push_back(cont[i]);
         }
     }
