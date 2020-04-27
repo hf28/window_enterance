@@ -6,13 +6,14 @@
 using namespace std;
 
 float vy, vz;
-bool flag = false;
+bool flag = false, enterance = false;
 
 void dataCallback(const simulate::imtodyn msg)
 {
   flag = true;
   vy = -(0.005*msg.y);
   vz = -(0.005*msg.z);
+  enterance = msg.enterance;
   cout<<"dyncon subscribed data\tvy:"<<vy<<"\tvz:\t"<<vz<<endl;
 }
 
@@ -26,7 +27,7 @@ int main(int argc, char **argv)
   ros::Subscriber sub = n.subscribe("visual_info", 1, dataCallback);
   ros::Publisher pub = n.advertise<geometry_msgs::Twist>("quadrotor_1/cmd_vel", 10);
   ros::Rate loop_rate(10); // Loop at 10Hz
-  int count = 0;
+  int count = 0, subCount = 0, t = 0 ;
   geometry_msgs::Twist gmsg;
 
   vey = gain*vy;
@@ -36,27 +37,44 @@ int main(int argc, char **argv)
 
   while (ros::ok())
   {
-    cout<<"dyncon flag:\t"<<flag<<endl;
+    cout<<"dyncon flag:\t"<<flag<<"\tentrance flag:  "<<enterance<<endl;
+
+
 
     if(flag){
       gmsg.linear.x = 0.5;
-      gmsg.linear.y = vy;
+      if(vy>0.75) gmsg.linear.y = vy;
+      else gmsg.linear.y = 0;
       gmsg.linear.z = vz;
       gmsg.angular.x = 0;
       gmsg.angular.y = 0;
-      gmsg.angular.z = 0.0;
+      gmsg.angular.z = 0.5*vy;
       flag = false;
+      subCount++;
+      t = 0;
     }
-    // else if(itsOK){
-    //   gmsg.linear.x = 0.1;
-    //   gmsg.linear.y = 0;
-    //   gmsg.linear.z = 0;
+    else if(enterance){
+      gmsg.linear.x = 0.5;
+      gmsg.linear.y = 0;
+      gmsg.linear.z = 0;
+      gmsg.angular.x = 0;
+      gmsg.angular.y = 0;
+      gmsg.angular.z = 0;
+      flag = false;
+      subCount++;
+      t = 0;
+    }
+    // else if(t<10 && !flag){
+    //   ++t;
+    //   gmsg.linear.x = 0;
+    //   if(vy>0.75) gmsg.linear.y = -vy;
+    //   else gmsg.linear.y = 0;
+    //   gmsg.linear.z = -(0.5*vz);
     //   gmsg.angular.x = 0;
     //   gmsg.angular.y = 0;
-    //   gmsg.angular.z = 0.0;
-    //   flag = false;
+    //   gmsg.angular.z = 0.2*(-vy);
     // }
-    else{
+    else {
       gmsg.linear.x = 0;
       gmsg.linear.y = 0.0;
       gmsg.linear.z = 0.0;
@@ -64,6 +82,7 @@ int main(int argc, char **argv)
       gmsg.angular.y = 0;
       gmsg.angular.z = 0.0;
     }
+
     cout<<"dyncon published data\tgmsg.linear.y:"<<gmsg.linear.y<<"\tgmsg.linear.z:\t"<<gmsg.linear.z<<endl;
 
     pub.publish(gmsg);
