@@ -7,7 +7,7 @@
 #include "opencv2/opencv.hpp"
 #include <cv_bridge/cv_bridge.h>
 #include "simulate/imtodyn.h"
-#include "simulate/dyntoim.h"
+// #include "simulate/dyntoim.h"
 #include <algorithm>
 using namespace cv;
 using namespace std;
@@ -19,8 +19,8 @@ const int max_GuKernelSize = 50;
 const String window_capture_name = "Video Capture";
 const int max_value_H = 360/2;
 const int max_value = 255;
-int low_H = 15, low_S = 174, low_V = 0;
-int high_H = 23, high_S = 255, high_V = 255;
+int low_H = 0, low_S = 57, low_V = 37;
+int high_H = 22, high_S = 108, high_V = 113;
 int canny1 = 131, canny2 = 0, GuKernelSize = 7;
 int ity=0, itz=0;
 float shapeAR ,GuSigma = 1.2, euc = 0;
@@ -172,11 +172,11 @@ void imageCallback(const sensor_msgs::ImageConstPtr& msg)    //will get called w
 //   }
 }
 
-void dynCallback(const simulate::dyntoim msg)
-{
-  lost = msg.lost;
-  cout<<"dyncon published data\tlost:"<<lost<<endl;
-}
+// void dynCallback(const simulate::dyntoim msg)
+// {
+//   lost = msg.lost;
+//   cout<<"dyncon published data\tlost:"<<lost<<endl;
+// }
 
 int main(int argc, char **argv)
 {
@@ -185,7 +185,7 @@ int main(int argc, char **argv)
   // cv::namedWindow("view");
   cv::startWindowThread();
   image_transport::ImageTransport it(nh);
-  ros::Subscriber dynSub = nh.subscribe("dynamic_feedback", 1, dynCallback);
+  // ros::Subscriber dynSub = nh.subscribe("dynamic_feedback", 1, dynCallback);
   image_transport::Subscriber sub = it.subscribe("/quadrotor_1/front/image_raw", 1, imageCallback);
   ros::Publisher pubinfo = nh.advertise<simulate::imtodyn>("visual_info", 10);
   ros::Rate loop_rate(10); // Loop at 10Hz
@@ -275,16 +275,16 @@ Mat windowDetection(Mat imin){
 }
 
 Mat preProcessing(Mat imin){
-  // namedWindow(window_capture_name);
-  // createTrackbar("canny1", window_capture_name, &canny1, max_canny1, on_canny1_trackbar);
-  // createTrackbar("canny2", window_capture_name, &canny2, max_canny2, on_canny2_trackbar);
-  // createTrackbar("GuKernelSize", window_capture_name, &GuKernelSize, max_GuKernelSize, on_GuKernelSize_trackbar);
-  // createTrackbar("Low H", window_capture_name, &low_H, max_value_H, on_low_H_thresh_trackbar);
-  // createTrackbar("High H", window_capture_name, &high_H, max_value_H, on_high_H_thresh_trackbar);
-  // createTrackbar("Low S", window_capture_name, &low_S, max_value, on_low_S_thresh_trackbar);
-  // createTrackbar("High S", window_capture_name, &high_S, max_value, on_high_S_thresh_trackbar);
-  // createTrackbar("Low V", window_capture_name, &low_V, max_value, on_low_V_thresh_trackbar);
-  // createTrackbar("High V", window_capture_name, &high_V, max_value, on_high_V_thresh_trackbar);
+  namedWindow(window_capture_name);
+  createTrackbar("canny1", window_capture_name, &canny1, max_canny1, on_canny1_trackbar);
+  createTrackbar("canny2", window_capture_name, &canny2, max_canny2, on_canny2_trackbar);
+  createTrackbar("GuKernelSize", window_capture_name, &GuKernelSize, max_GuKernelSize, on_GuKernelSize_trackbar);
+  createTrackbar("Low H", window_capture_name, &low_H, max_value_H, on_low_H_thresh_trackbar);
+  createTrackbar("High H", window_capture_name, &high_H, max_value_H, on_high_H_thresh_trackbar);
+  createTrackbar("Low S", window_capture_name, &low_S, max_value, on_low_S_thresh_trackbar);
+  createTrackbar("High S", window_capture_name, &high_S, max_value, on_high_S_thresh_trackbar);
+  createTrackbar("Low V", window_capture_name, &low_V, max_value, on_low_V_thresh_trackbar);
+  createTrackbar("High V", window_capture_name, &high_V, max_value, on_high_V_thresh_trackbar);
 
   Mat out, imin_hsv;
   // int erosion_size = 3;
@@ -299,7 +299,7 @@ Mat preProcessing(Mat imin){
   // dilate( out, out, element );
   // GaussianBlur(out, out, Size(7,7), 1.2);
   bitwise_not(out, out);
-  // imshow(window_capture_name, out);
+  imshow(window_capture_name, out);
   // erode(out, out, element );
   return out;
 }
@@ -535,9 +535,9 @@ Mat perception3D(Mat img, vector<Point> win){
   projectPoints(axis_3d, rotation_vec, translation_vec, camera_matrix, distortion_matrix, axis_2d);
 
   // for(int i=0; i<axis_2d.size(); ++i){
-    line(pic, axis_2d[0], axis_2d[1], Scalar(0,255,255), 1, CV_AA);
-    line(pic, axis_2d[0], axis_2d[2], Scalar(255,0,255), 1, CV_AA);
-    line(pic, axis_2d[0], axis_2d[3], Scalar(255,255,0), 1, CV_AA);
+    line(pic, axis_2d[0], axis_2d[1], Scalar(0,255,255), 1, cv::LINE_AA);
+    line(pic, axis_2d[0], axis_2d[2], Scalar(255,0,255), 1, cv::LINE_AA);
+    line(pic, axis_2d[0], axis_2d[3], Scalar(255,255,0), 1, cv::LINE_AA);
   // }
   return pic;
 }

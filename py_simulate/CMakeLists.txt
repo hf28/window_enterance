@@ -15,13 +15,12 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   cv_bridge
   image_transport
-  OpenCV REQUIRED
   geometry_msgs
   message_generation
 )
    #-Dlibsdl-dev_DIR=/usr/share/doc
 #find_package(libsdl1.2-dev REQUIRED)
-
+find_package(OpenCV REQUIRED)
 
 #link_directories(/usr/share/doc/libsdl1.2-dev)
 
