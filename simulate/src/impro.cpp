@@ -21,7 +21,7 @@ const int max_value_H = 360/2;
 const int max_value = 255;
 int low_H = 0, low_S = 57, low_V = 37;
 int high_H = 22, high_S = 108, high_V = 113;
-int canny1 = 131, canny2 = 0, GuKernelSize = 7;
+int canny1 = 131, canny2 = 0, GuKernelSize = 3;
 int ity=0, itz=0;
 float shapeAR ,GuSigma = 1.2, euc = 0;
 int vecy, vecz, tempvecy, tempvecz, tempArea, iter=0, eucFilterIt=0, eucFIt=0, areaIt=0;
@@ -245,8 +245,8 @@ void setWindow(Mat frm){
 
 
   imshow("operator desicion", frm);
-  waitKey();
-  destroyAllWindows();
+  // waitKey();
+  // destroyAllWindows();
 }
 
 
@@ -287,35 +287,43 @@ Mat preProcessing(Mat imin){
   createTrackbar("High V", window_capture_name, &high_V, max_value, on_high_V_thresh_trackbar);
 
   Mat out, imin_hsv;
-  // int erosion_size = 3;
-  // Mat element = getStructuringElement( MORPH_RECT,
-  //                                     Size( 2*erosion_size + 1, 2*erosion_size+1 ),
-  //                                     Point( erosion_size, erosion_size ) );
+  int erosion_size = 3;
+  Mat element = getStructuringElement( MORPH_RECT,
+                                      Size( 2*erosion_size + 1, 2*erosion_size+1 ),
+                                      Point( erosion_size, erosion_size ) );
 
   // GaussianBlur(imin, imin, Size(GuKernelSize,GuKernelSize), 1.2);
   cvtColor(imin, imin_hsv, COLOR_BGR2HSV);
   inRange(imin_hsv, Scalar(low_H, low_S, low_V), Scalar(high_H, high_S, high_V), out);
   // Canny(imin, out, canny1, canny2, 3);
-  // dilate( out, out, element );
   // GaussianBlur(out, out, Size(7,7), 1.2);
+
   bitwise_not(out, out);
-  imshow(window_capture_name, out);
+  // GaussianBlur(out, out, Size(GuKernelSize,GuKernelSize), 1.2);
+  //
   // erode(out, out, element );
+  // dilate( out, out, element );
+  imshow(window_capture_name, out);
   return out;
 }
 
 vector<vector<Point>> contourExtraction(Mat img, Mat &img0, vector<vector<Point>> &windows){
   vector<vector<Point> > contours, polies;
   vector<Vec4i> hierarchy;
-  vector<Point> conto;
+  vector<Point> conto, con;
+  vector<Point2d> win;
 
   findContours( img, contours, hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_TC89_KCOS, Point(0, 0) );
   for( float i = 0; i< contours.size(); i++ ){
+    if (contourArea(contours[i])<100) continue;
     approxPolyDP(Mat(contours[i]), conto, 13, true);
     polies.push_back(conto);
+    // fourPSort(conto, win);
+    // cout<<"conto\n"<<conto;
+    // cout<<"conto\n"<<win;
     windows.push_back(reconstructRect(conto));
-    drawContours( img0, windows, i, Scalar(0,0,255), 2, 8);
   }
+  drawContours( img0, windows, -1, Scalar(0,0,255), 2, 8);
   cout<<"num of contours: \t"<<contours.size()<<endl;
 
   return polies;
@@ -358,12 +366,13 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
     centerDist = euclideanDist(oldP, Point(case_y,case_z));
     arDiff = abs(ar-shapeAR);
 
-    polyScore = abs(area-tempArea)/tempArea + (2*centerDist/picChord) + (arDiff/shapeAR);
+    // polyScore = abs(area-tempArea)/tempArea + (centerDist/sqrt(tempArea)) + (arDiff/shapeAR);
+    polyScore = (centerDist/sqrt(tempArea));
 
     // if(iter==0)
     if(conto.size()==1) polyInfo.push_back({i, 1000, 1000, 1, 0, 1000, 0,0,0,1000,1000});
     else polyInfo.push_back({i, polyScore, arDiff, float(conto.size()), area, ar,
-                            abs(area-tempArea)/tempArea, (2*centerDist/picChord),
+                            abs(area-tempArea)/tempArea, (centerDist/sqrt(tempArea)),
                             float(arDiff/shapeAR), centerDist, float(case_y), float(case_z)});
   }
   int m = polyInfo.size();
@@ -391,6 +400,14 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
 
   cout<<"area data:   before:\t"<< tempArea<<endl;
 
+  if(tempArea >= enteranceArea/3) maxAreaDiff = (4*tempArea)/10;
+  else if(tempArea >= enteranceArea/9) maxAreaDiff = (3.5*tempArea)/10;
+  else if(long_distance) maxAreaDiff = (5*tempArea)/10;
+  else maxAreaDiff = (3*tempArea)/10;
+
+  cout<<"max area diff:\t"<< maxAreaDiff<<endl;
+
+
   for(int i=0; i<poly.size(); ++i){
 
     // if(iter==0) {tempArea = polyInfo[i][4];
@@ -398,19 +415,16 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
     // }
 
     is_it_4p = (polyInfo[i][3]==4)/*||is_it_close_enough*/;
-    if(!is_it_4p && in_fours) {
-      if((i==polyInfo.size()-1)) {
-        in_fours = false;
-        i = -1;
-        continue;
-        }
-      else continue;
-    }
+    // if(!is_it_4p && in_fours) {
+    //   if((i==polyInfo.size()-1)) {
+    //     in_fours = false;
+    //     i = -1;
+    //     continue;
+    //     }
+    //   else continue;
+    // }
 
-    if(tempArea >= enteranceArea/3) maxAreaDiff = (3.5*tempArea)/10;
-    else if(tempArea >= enteranceArea/9) maxAreaDiff = (2.3*tempArea)/10;
-    else if(long_distance) maxAreaDiff = (4*tempArea)/10;
-    else maxAreaDiff = (1.8*tempArea)/10;
+
 
     areaDiff = abs(polyInfo[i][4]-tempArea);
     cout<<"areaDiff:\t"<<areaDiff<<endl;
@@ -428,7 +442,7 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
         <<"  "<< is_the_area_const<<"  "<<is_it_close_enough <<"  "<< is_it_the_full_frame<<"  "<<endl;
 
     if((is_the_area_const || is_it_close_enough)&& !is_it_the_full_frame
-       && (is_it_4p == in_fours) && is_the_ca_const && is_the_ar_ok) {
+       && /*(is_it_4p == in_fours) && */is_the_ca_const && is_the_ar_ok) {
          goodIndex = polyInfo[i][0];
          ind = i;
          if(in_fours) cout<<"---good 4p poly info:\t";
@@ -439,11 +453,11 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
          break;
     }
 
-    if(is_it_4p && i==polyInfo.size()-1 && in_fours){
-      in_fours = false;
-      i = -1;
-      continue;
-    }
+    // if(is_it_4p && i==polyInfo.size()-1 && in_fours){
+    //   in_fours = false;
+    //   i = -1;
+    //   continue;
+    // }
 
   }
 
@@ -705,7 +719,7 @@ bool fourPSort (vector<Point> cont, vector<Point2d> &res) {
         }
     }
 
-    cout << c1.size() << " " << c2.size() << " " << c3.size() << " " << c4.size() << endl;
+    // cout << c1.size() << " " << c2.size() << " " << c3.size() << " " << c4.size() << endl;
 
     if(c1.size()>1){
       return false;

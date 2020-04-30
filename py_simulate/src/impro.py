@@ -17,8 +17,8 @@ max_canny1, max_canny2 = 800, 800
 max_GuKernelSize = 50
 window_capture_name = "Video Capture"
 max_value_H, max_value = 360/2, 255
-low_H, low_S, low_V = 15, 174, 0
-high_H, high_S, high_V = 23, 255, 255
+low_H, low_S, low_V, thresh = 0, 57, 37, 30
+high_H, high_S, high_V = 22, 108, 113
 canny1, canny2, GuKernelSize, GuSigma = 131, 0, 7, 1.2
 ity, itz = 0, 0
 shapeAR=1000
@@ -75,6 +75,12 @@ def on_high_V_thresh_trackbar(val):
     high_V = val
     high_V = max(high_V, low_V+1)
     cv.setTrackbarPos("High V", window_capture_name, high_V)
+def on_thresh_thresh_trackbar(val):
+    global thresh
+    # global high_V
+    thresh = val
+    # high_V = max(high_V, low_V+1)
+    cv.setTrackbarPos("thresh", window_capture_name, thresh)
 
 def onMouse(event, x, y, flags, param):
     global seed, is_set, shapeAR, tempArea, oldP, tempvecy, tempvecz
@@ -118,22 +124,37 @@ def setWindow(img):
     cntrs, _ = contourExtraction(pic, img)
 
     cv.imshow("operator desicion", img)
-    cv.waitKey()
-    cv.destroyAllWindows()
+    # cv.waitKey()
+    # cv.destroyAllWindows()
 
 def preProcessing(img):
-    # cv.namedWindow(window_capture_name)
-    # cv.createTrackbar("Low H", window_capture_name , low_H, max_value_H, on_low_H_thresh_trackbar)
-    # cv.createTrackbar("High H", window_capture_name , high_H, max_value_H, on_high_H_thresh_trackbar)
-    # cv.createTrackbar("Low S", window_capture_name , low_S, max_value, on_low_S_thresh_trackbar)
-    # cv.createTrackbar("High S", window_capture_name , high_S, max_value, on_high_S_thresh_trackbar)
-    # cv.createTrackbar("Low V", window_capture_name , low_V, max_value, on_low_V_thresh_trackbar)
-    # cv.createTrackbar("High V", window_capture_name , high_V, max_value, on_high_V_thresh_trackbar)
+    cv.namedWindow(window_capture_name)
+    cv.createTrackbar("Low H", window_capture_name , low_H, max_value_H, on_low_H_thresh_trackbar)
+    cv.createTrackbar("High H", window_capture_name , high_H, max_value_H, on_high_H_thresh_trackbar)
+    cv.createTrackbar("Low S", window_capture_name , low_S, max_value, on_low_S_thresh_trackbar)
+    cv.createTrackbar("High S", window_capture_name , high_S, max_value, on_high_S_thresh_trackbar)
+    cv.createTrackbar("Low V", window_capture_name , low_V, max_value, on_low_V_thresh_trackbar)
+    cv.createTrackbar("High V", window_capture_name , high_V, max_value, on_high_V_thresh_trackbar)
+    cv.createTrackbar("thresh", window_capture_name , thresh, max_value, on_thresh_thresh_trackbar)
+
+    erosion_type = cv.MORPH_RECT
+    erosion_size1 = 3
+    erosion_size2 = 2
+    element1 = cv.getStructuringElement(erosion_type, (2*erosion_size1 + 1, 2*erosion_size1+1), (erosion_size1, erosion_size1))
+    element2 = cv.getStructuringElement(erosion_type, (2*erosion_size2 + 1, 2*erosion_size2+1), (erosion_size2, erosion_size2))
+
+
     frame_HSV = cv.cvtColor(img, cv.COLOR_BGR2HSV)
     frame_threshold = cv.inRange(frame_HSV, (low_H, low_S, low_V), (high_H, high_S, high_V))
     frame_inverse = cv.bitwise_not(frame_threshold)
-    # cv.imshow(window_capture_name,frame_inverse)
-    # cv.waitKey(30)
+
+    # frame_inverse = cv.GaussianBlur(frame_inverse,(3,3),1.2)
+    # frame_inverse = cv.erode(frame_inverse, element1)
+    # _,frame_inverse = cv.threshold(frame_inverse,thresh,255,cv.THRESH_BINARY)
+    # frame_inverse = cv.dilate(frame_inverse, element2)
+
+    cv.imshow(window_capture_name,frame_inverse)
+    cv.waitKey(1)
     return frame_inverse
 
 def contourExtraction(img, img0):
@@ -143,16 +164,17 @@ def contourExtraction(img, img0):
     print("num of contours:  ", len(contours))
     i=0
     for cnt in contours:
+        if cv.contourArea(cnt)<100: continue
         polies.append(cv.approxPolyDP(cnt,13, True))
         windows.append(reconstructRect(cnt))
-    cv.drawContours(img0, windows, -1, (0,255,0), 2)
+    cv.drawContours(img0, windows, -1, (0,0,255), 2)
     return polies, windows;
 
 def fourPSort(cont):
     success = False
     res = []
     if len(cont)==0: return res, success;
-    print("cont in fps", cont)
+    # print("cont in fps", cont)
     xm = ym = 0
     for point in cont:
         xm = xm + point[0][0]
@@ -251,9 +273,9 @@ def reconstructRect(contour):
             di = [[contour[k][0][0], contour[k][0][1]]]
             if di!=diam1_1 and di!=diam1_2:
                 diam2_1 = di
-        print(diam1_1)
-        print(diam1_2)
-        print(diam2_1)
+        # print(diam1_1)
+        # print(diam1_2)
+        # print(diam2_1)
         diam2_2 = [[diam1_2[0][i] + diam1_1[0][i] - diam2_1[0][i] for i in range(2)]]
         win = [diam1_1,diam1_2,diam2_1,diam2_2]
         win = np.array(win)
@@ -299,6 +321,8 @@ def contourManagement(polies, img):
     drawing = img.copy()
     is_it_the_first = (iter==0)
 
+    oldP = [[tempvecy, tempvecz]]
+
     print("iter:\t", iter)
     print("oldP", oldP)
 
@@ -310,8 +334,9 @@ def contourManagement(polies, img):
         case_y, case_z = rectangleGeometric(poly, img)
         centerDist = euclideanDist(oldP, [[case_y,case_z]])
         arDiff = abs(ar-shapeAR)
-        polyScore = abs(area-tempArea)/tempArea + (2*centerDist/picChord) + (arDiff/shapeAR)
-        polyInfo_case = [i, polyScore, arDiff, len(poly), area, ar, abs(area-tempArea)/tempArea, (2*centerDist/picChord), arDiff/shapeAR, centerDist, case_y, case_z]
+        # polyScore = abs(area-tempArea)/tempArea + (centerDist/math.sqrt(tempArea)) + (arDiff/shapeAR)
+        polyScore = (centerDist/math.sqrt(tempArea))
+        polyInfo_case = [i, polyScore, arDiff, len(poly), area, ar, abs(area-tempArea)/tempArea, (centerDist/math.sqrt(tempArea)), arDiff/shapeAR, centerDist, case_y, case_z]
         polyInfo_op = [i, 1000, 1000, 1, 0, 1000, 0,0,0,1000,1000, 1000]
         if(len(poly)==1): polyInfo.append(polyInfo_op)
         else: polyInfo.append(polyInfo_case)
@@ -321,30 +346,34 @@ def contourManagement(polies, img):
     print("polyInfo size:  ", len(polyInfo))
     print("sorted polies:")
 
+
+
     for p in polyInfo:
         if p[2]>100: continue
-        print(p)
+        polyInfo_r = [float("{:.2f}".format(p[i])) for i in range(12)]
+        print(polyInfo_r)
 
     the_close_angle_case = (polyInfo[0][2]>0.8)
 
     print("area data:   before:", tempArea)
 
     i = 0
+
+    if tempArea >= enteranceArea/3: maxAreaDiff = (4*tempArea)/10
+    elif tempArea >= enteranceArea/9: maxAreaDiff = (3.5*tempArea)/10
+    elif long_distance: maxAreaDiff = (5*tempArea)/10
+    else: maxAreaDiff = (3*tempArea)/10
+
     while i<m :
         is_it_4p = (polyInfo[i][3]==4)
-        if (not is_it_4p) and in_fours:
-            if i==m-1:
-                in_fours = False
-                i = 0
-                continue
-            else:
-                i = i+1
-                continue
-
-        if tempArea >= enteranceArea/3: maxAreaDiff = (3.5*tempArea)/10
-        elif tempArea >= enteranceArea/9: maxAreaDiff = (2.3*tempArea)/10
-        elif long_distance: maxAreaDiff = (4*tempArea)/10
-        else: maxAreaDiff = (1.8*tempArea)/10
+        # if (not is_it_4p) and in_fours:
+        #     if i==m-1:
+        #         in_fours = False
+        #         i = 0
+        #         continue
+        #     else:
+        #         i = i+1
+        #         continue
 
         areaDiff = abs(polyInfo[i][4]-tempArea)
         print("areaDiff", areaDiff)
@@ -356,22 +385,25 @@ def contourManagement(polies, img):
         if the_close_angle_case: is_the_ar_ok = polyInfo[i][2]<1.5
         else: is_the_ar_ok = polyInfo[i][2]<0.8
 
-        if in_fours: print("filters report 4p:   ", is_it_the_first, is_the_ca_const, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_close_enough, is_it_the_full_frame)
-        else:  print("filters report none 4p:   ", is_it_the_first, is_the_ca_const, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_close_enough, is_it_the_full_frame)
+        # if in_fours: print("filters report 4p:   ", is_it_the_first, is_the_ca_const, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_close_enough, is_it_the_full_frame)
+        # else:  print("filters report none 4p:   ", is_it_the_first, is_the_ca_const, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_close_enough, is_it_the_full_frame)
+        print("filters report :   ", is_it_the_first, is_the_ca_const, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_close_enough, is_it_the_full_frame)
 
-        if (is_the_area_const or is_it_close_enough) and (not is_it_the_full_frame) and (is_it_4p==in_fours) and is_the_ca_const and is_the_ar_ok:
+        # if (is_the_area_const or is_it_close_enough) and (not is_it_the_full_frame) and (is_it_4p==in_fours) and is_the_ca_const and is_the_ar_ok:
+        if (is_the_area_const or is_it_close_enough) and (not is_it_the_full_frame) and is_the_ca_const and is_the_ar_ok:
             goodIndex = polyInfo[i][0]
             ind = i
-            if in_fours: print("---good 4p poly info:   ", polyInfo[ind])
-            else: print("---good none 4p poly info:   ", polyInfo[ind])
+            # if in_fours: print("---good 4p poly info:   ", polyInfo[ind])
+            # else: print("---good none 4p poly info:   ", polyInfo[ind])
+            print("---good poly info:   ", polyInfo[ind])
             print("area data:    before:", tempArea, "   new:   ", polyInfo[ind][4])
             win = polies[goodIndex]
             break
 
-        if is_it_4p and i==m-1 and in_fours:
-            in_fours = False
-            i = 0
-            continue
+        # if is_it_4p and i==m-1 and in_fours:
+        #     in_fours = False
+        #     i = 0
+        #     continue
         i = i+1
 
     if not is_the_ca_const:
@@ -419,6 +451,7 @@ def contourManagement(polies, img):
     return drawing, win;
 
 def perception3D(img, win):
+    if not flag: return img
     global real_rect_info, translation_vec, rotation_vec
     axis_3d = np.float32([[0, 0, 0], [0.5, 0, 0], [0, 0.5, 0], [0, 0, 0.5]])
     is_sorted, rect = fourPSort(reconstructRect(win))
@@ -502,7 +535,7 @@ class image_converter:
 
 def main(args):
 
-  print("Node Started\n")
+  print("Node Started ...\n")
   ic = image_converter()
   # ic = window_detection()
   pub = rospy.Publisher('chatter', String, queue_size=10)

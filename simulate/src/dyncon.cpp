@@ -6,11 +6,14 @@
 using namespace std;
 
 float vy, vz;
-bool flag = false, enterance = false;
+bool flag = false, enterance = false, go = false;
+int init = 0;
 
 void dataCallback(const simulate::imtodyn msg)
 {
+  cout<<"\n\n\n";
   flag = true;
+  init++;
   vy = -(0.005*msg.y);
   vz = -(0.005*msg.z);
   enterance = msg.enterance;
@@ -33,15 +36,20 @@ int main(int argc, char **argv)
   vey = gain*vy;
   vez = gain*vz;
 
-
-
   while (ros::ok())
   {
     cout<<"dyncon flag:\t"<<flag<<"\tentrance flag:  "<<enterance<<endl;
 
 
+    if(vy>0.75) vy = 0.75;
+    if(vz>0.75) vz = 0.75;
+    if(vy<-0.75) vy = -0.75;
+    if(vz<-0.75) vz = -0.75;
+    cout<<"dyncon pd data\tvy:"<<vy<<"\tvz:\t"<<vz<<endl;
 
-    if(flag){
+    if(init>=10) go = true;
+
+    if(flag && go){
       gmsg.linear.x = 0.5;
       if(vy>0.75) gmsg.linear.y = vy;
       else gmsg.linear.y = 0;
@@ -53,7 +61,7 @@ int main(int argc, char **argv)
       subCount++;
       t = 0;
     }
-    else if(enterance){
+    else if(enterance && go){
       gmsg.linear.x = 0.5;
       gmsg.linear.y = 0;
       gmsg.linear.z = 0;
