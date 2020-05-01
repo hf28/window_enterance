@@ -150,10 +150,10 @@ def preProcessing(img):
     frame_threshold = cv.inRange(frame_HSV, (low_H, low_S, low_V), (high_H, high_S, high_V))
     frame_inverse = cv.bitwise_not(frame_threshold)
 
-    # frame_inverse = cv.GaussianBlur(frame_inverse,(3,3),1.2)
-    # frame_inverse = cv.erode(frame_inverse, element1)
-    # _,frame_inverse = cv.threshold(frame_inverse,thresh,255,cv.THRESH_BINARY)
-    # frame_inverse = cv.dilate(frame_inverse, element2)
+    frame_inverse = cv.GaussianBlur(frame_inverse,(3,3),1.2)
+    frame_inverse = cv.erode(frame_inverse, element1)
+    _,frame_inverse = cv.threshold(frame_inverse,thresh,255,cv.THRESH_BINARY)
+    frame_inverse = cv.dilate(frame_inverse, element2)
 
     cv.imshow(window_capture_name,frame_inverse)
     cv.waitKey(1)
@@ -279,7 +279,7 @@ def reconstructRect(contour):
         # print(diam1_2)
         # print(diam2_1)
         diam2_2 = [[diam1_2[0][i] + diam1_1[0][i] - diam2_1[0][i] for i in range(2)]]
-        win = [diam1_1,diam1_2,diam2_1,diam2_2]
+        win = [diam1_1,diam2_1,diam1_2,diam2_2]
         win = np.array(win)
         return win
     elif len(contour)==4:
@@ -336,9 +336,9 @@ def contourManagement(polies, img):
         case_y, case_z = rectangleGeometric(poly, img)
         centerDist = euclideanDist(oldP, [[case_y,case_z]])
         arDiff = abs(ar-shapeAR)
-        # polyScore = abs(area-tempArea)/tempArea + (centerDist/math.sqrt(tempArea)) + (arDiff/shapeAR)
-        polyScore = centerDist
-        polyInfo_case = [i, polyScore, arDiff, len(poly), area, ar, abs(area-tempArea), centerDist, arDiff/shapeAR, centerDist, case_y, case_z]
+        # polyScore = abs(area-tempArea)/tempArea+(2*centerDist/math.sqrt(tempArea))+(arDiff/shapeAR)
+        polyScore = centerDist/math.sqrt(tempArea)
+        polyInfo_case = [i, polyScore, arDiff, len(poly), area, ar, abs(area-tempArea), centerDist/math.sqrt(tempArea), arDiff/shapeAR, centerDist, case_y, case_z]
         polyInfo_op = [i, 1000, 1000, 1, 0, 1000, 0,0,0,1000,1000, 1000]
         if(len(poly)==1): polyInfo.append(polyInfo_op)
         else: polyInfo.append(polyInfo_case)

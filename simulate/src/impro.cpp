@@ -52,7 +52,7 @@ void shiftVector(vector<int>&, int);
 float vectorAverage(vector<int>);
 float vectorSD(vector<int>);
 bool sortcol( const vector<float>&, const vector<float>&);
-bool fourPSort (vector<Point>, vector<Point2d>&);
+bool fourPSort (vector<Point>, vector<Point>&);
 vector<Point> reconstructRect(vector<Point>&);
 Mat perception3D(Mat, vector<Point>);
 void setWindow(Mat);
@@ -311,20 +311,20 @@ vector<vector<Point>> contourExtraction(Mat img, Mat &img0, vector<vector<Point>
   vector<vector<Point> > contours, polies;
   vector<Vec4i> hierarchy;
   vector<Point> conto, con;
-  vector<Point2d> win;
+  vector<Point> win;
 
   findContours( img, contours, hierarchy, CV_RETR_LIST, CV_CHAIN_APPROX_TC89_KCOS, Point(0, 0) );
   for( float i = 0; i< contours.size(); i++ ){
+    // con.clear();
     if (contourArea(contours[i])<100) continue;
     approxPolyDP(Mat(contours[i]), conto, 13, true);
     polies.push_back(conto);
-    // fourPSort(conto, win);
-    // cout<<"conto\n"<<conto;
-    // cout<<"conto\n"<<win;
+    // fourPSort(reconstructRect(conto), win);
+
     windows.push_back(reconstructRect(conto));
   }
-  drawContours( img0, windows, -1, Scalar(0,0,255), 2, 8);
-  cout<<"num of contours: \t"<<contours.size()<<endl;
+  cout<<"num of contours: \t"<<windows.size()<<endl;
+  if(windows.size()) drawContours( img0, windows, -1, Scalar(0,0,255), 2);
 
   return polies;
 }
@@ -366,13 +366,13 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
     centerDist = euclideanDist(oldP, Point(case_y,case_z));
     arDiff = abs(ar-shapeAR);
 
-    // polyScore = abs(area-tempArea)/tempArea + (centerDist/sqrt(tempArea)) + (arDiff/shapeAR);
-    polyScore = centerDist;
+    // polyScore = abs(area-tempArea)/tempArea+(2*centerDist/sqrt(tempArea))+(arDiff/shapeAR);
+    polyScore = centerDist/sqrt(tempArea);
 
     // if(iter==0)
     if(conto.size()==1) polyInfo.push_back({i, 1000, 1000, 1, 0, 1000, 0,0,0,1000,1000});
     else polyInfo.push_back({i, polyScore, arDiff, float(conto.size()), area, ar,
-                            abs(area-tempArea), centerDist,
+                            abs(area-tempArea), (centerDist/sqrt(tempArea)),
                             float(arDiff/shapeAR), centerDist, float(case_y), float(case_z)});
   }
   int m = polyInfo.size();
@@ -543,7 +543,16 @@ Mat perception3D(Mat img, vector<Point> win){
   vector<Point3d> axis_3d{Point3d(0,0,0), Point3d(0.5,0,0), Point3d(0,0.5,0), Point3d(0,0,0.5)};
   Mat pic = img.clone();
 
-  if(!fourPSort(reconstructRect(win), found_rect_info)) return img;
+  if(!fourPSort(reconstructRect(win), rect)) return img;
+
+  // cout<<"rc r:\n"<<rect<<endl;
+
+  found_rect_info.clear();
+  transform(rect.begin(), rect.end(),
+             back_inserter(found_rect_info),
+             [](const Point& p) { return (Point2d)p; });
+
+  // cout<<"f r i:\n"<<found_rect_info<<endl;
 
   solvePnP(real_rect_info, found_rect_info, camera_matrix, distortion_matrix, rotation_vec, translation_vec);
   projectPoints(axis_3d, rotation_vec, translation_vec, camera_matrix, distortion_matrix, axis_2d);
@@ -581,7 +590,8 @@ vector<Point> reconstructRect(vector<Point> &contour){
     }
     diam2_2 = diam1_2 + diam1_1 - diam2_1;
     // cout<<'\n'<<diam1_1<<'\t'<<diam1_2<<'\t'<<diam2_1<<'\t'<<diam2_2<<endl;
-    return {diam1_1,diam1_2,diam2_1,diam2_2};
+    return {diam1_1,diam2_1,diam1_2,diam2_2};
+    // return contour;
   }
   else if(contour.size()==4){
     return contour;
@@ -630,7 +640,7 @@ void rectangleGeometric(vector<Point> points, Mat pic, int& dx, int& dy){
 float arCalculate(vector<Point> points,  Mat pic){
   if(points.size() == 1) return 10e6;
   int cornerPoints=0;
-  vector<Point2d> sorted;
+  vector<Point> sorted;
   // cout<<"num of pts:\t\t\t"<<points.size()<<endl;
   unsigned int max=0, may=0, mix=10e6, miy=10e6;
   Point pmax(0,0), pmay(0,0), pmix(10e6,0), pmiy(0,10e6);
@@ -688,12 +698,13 @@ bool sortcol( const vector<float>& v1, const vector<float>& v2 ) {
    return v1[1] < v2[1];
   }
 
-bool fourPSort (vector<Point> cont, vector<Point2d> &res) {
+bool fourPSort (vector<Point> cont, vector<Point> &res) {
     if(cont.size()==0)
     {
       cout << "empty" << endl;
       return false;
     }
+
     int xm=0, ym=0;
     for(int i=0; i<cont.size(); ++i){
       xm += cont[i].x;
@@ -701,8 +712,8 @@ bool fourPSort (vector<Point> cont, vector<Point2d> &res) {
     }
     xm /= cont.size();
     ym /= cont.size();
-    vector<Point2d>  c1, c2, c3, c4;
-    vector<Point2d>  t1, t2, t3, t4;
+    vector<Point>  c1, c2, c3, c4;
+    vector<Point>  t1, t2, t3, t4;
 
     for(int i=0; i<cont.size(); ++i){
         if((cont[i].x<=xm)&&(cont[i].y>=ym)){
@@ -718,7 +729,6 @@ bool fourPSort (vector<Point> cont, vector<Point2d> &res) {
           c4.push_back(cont[i]);
         }
     }
-
     // cout << c1.size() << " " << c2.size() << " " << c3.size() << " " << c4.size() << endl;
 
     if(c1.size()>1){
