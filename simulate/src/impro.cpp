@@ -367,12 +367,12 @@ Mat contourManagement(  vector<vector<Point>> poly, Mat img, vector<Point> &res/
     arDiff = abs(ar-shapeAR);
 
     // polyScore = abs(area-tempArea)/tempArea + (centerDist/sqrt(tempArea)) + (arDiff/shapeAR);
-    polyScore = (centerDist/sqrt(tempArea));
+    polyScore = centerDist;
 
     // if(iter==0)
     if(conto.size()==1) polyInfo.push_back({i, 1000, 1000, 1, 0, 1000, 0,0,0,1000,1000});
     else polyInfo.push_back({i, polyScore, arDiff, float(conto.size()), area, ar,
-                            abs(area-tempArea)/tempArea, (centerDist/sqrt(tempArea)),
+                            abs(area-tempArea), centerDist,
                             float(arDiff/shapeAR), centerDist, float(case_y), float(case_z)});
   }
   int m = polyInfo.size();

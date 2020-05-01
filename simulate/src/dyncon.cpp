@@ -41,10 +41,10 @@ int main(int argc, char **argv)
     cout<<"dyncon flag:\t"<<flag<<"\tentrance flag:  "<<enterance<<endl;
 
 
-    if(vy>0.75) vy = 0.75;
-    if(vz>0.75) vz = 0.75;
-    if(vy<-0.75) vy = -0.75;
-    if(vz<-0.75) vz = -0.75;
+    if(vy>0.5) vy = 0.5;
+    if(vz>0.5) vz = 0.5;
+    if(vy<-0.5) vy = -0.5;
+    if(vz<-0.5) vz = -0.5;
     cout<<"dyncon pd data\tvy:"<<vy<<"\tvz:\t"<<vz<<endl;
 
     if(init>=10) go = true;

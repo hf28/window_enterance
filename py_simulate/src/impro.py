@@ -13,6 +13,7 @@ import numpy as np
 import math
 
 cv_image = np.zeros((1, 1, 3), np.uint8)
+frame_ = np.zeros((1, 1, 3), np.uint8)
 max_canny1, max_canny2 = 800, 800
 max_GuKernelSize = 50
 window_capture_name = "Video Capture"
@@ -83,11 +84,11 @@ def on_thresh_thresh_trackbar(val):
     cv.setTrackbarPos("thresh", window_capture_name, thresh)
 
 def onMouse(event, x, y, flags, param):
-    global seed, is_set, shapeAR, tempArea, oldP, tempvecy, tempvecz
+    global seed, is_set, shapeAR, tempArea, oldP, tempvecy, tempvecz, frame_
     if event == cv.EVENT_LBUTTONDOWN:
         seed = (x,y)
         print(seed)
-
+        frame_ = cv_image.copy()
         im = cv_image.copy()
         pic = preProcessing(im)
         cntrs, wins = contourExtraction(pic, im)
@@ -112,19 +113,20 @@ def onMouse(event, x, y, flags, param):
         tempvecy, tempvecz = rectangleGeometric(cntrs[choiceIndex], im)
         oldP = [[tempvecy, tempvecz]]
         print("oldP", oldP)
-        cv.drawContours( im, wins, choiceIndex, (255,0,0), 2);
+        cv.drawContours( frame_, wins, choiceIndex, (255,0,0), 2);
         print("set info:\t" ,oldP,'\t', shapeAR ,'\t', tempArea ,'\t', tempvecy ,'\t',tempvecz, '\n')
-        cv.imshow("operator desicion", im)
         is_set = True
 
 def setWindow(img):
+    if is_set: return
+    global frame_
     cv.namedWindow("operator desicion")
     cv.setMouseCallback("operator desicion", onMouse)
     pic = preProcessing(img)
     cntrs, _ = contourExtraction(pic, img)
 
     cv.imshow("operator desicion", img)
-    # cv.waitKey()
+    # cv.waitKey(1)
     # cv.destroyAllWindows()
 
 def preProcessing(img):
@@ -335,8 +337,8 @@ def contourManagement(polies, img):
         centerDist = euclideanDist(oldP, [[case_y,case_z]])
         arDiff = abs(ar-shapeAR)
         # polyScore = abs(area-tempArea)/tempArea + (centerDist/math.sqrt(tempArea)) + (arDiff/shapeAR)
-        polyScore = (centerDist/math.sqrt(tempArea))
-        polyInfo_case = [i, polyScore, arDiff, len(poly), area, ar, abs(area-tempArea)/tempArea, (centerDist/math.sqrt(tempArea)), arDiff/shapeAR, centerDist, case_y, case_z]
+        polyScore = centerDist
+        polyInfo_case = [i, polyScore, arDiff, len(poly), area, ar, abs(area-tempArea), centerDist, arDiff/shapeAR, centerDist, case_y, case_z]
         polyInfo_op = [i, 1000, 1000, 1, 0, 1000, 0,0,0,1000,1000, 1000]
         if(len(poly)==1): polyInfo.append(polyInfo_op)
         else: polyInfo.append(polyInfo_case)
@@ -506,7 +508,7 @@ class image_converter:
     # self.image_sub = rospy.Subscriber("/image_raw",Image,self.imageCallback)
 
   def imageCallback(self,data):
-    global cv_image, is_set
+    global cv_image, is_set, frame_
     try:
       cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
     except CvBridgeError as e:
@@ -521,6 +523,8 @@ class image_converter:
 
     else:
         print("is_set",is_set)
+        cv.destroyWindow("operator desicion")
+        cv.imshow("operator dsicion", frame_)
         frame = windowDetection(cv_image)
     print("flag", flag)
     if flag:
