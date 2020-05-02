@@ -150,7 +150,7 @@ class ColorBasedWindowDetector:
             parallels.append([[line[0][0],line[0][1]]])
             for idx1, line1 in enumerate(lines):
                 if line1[0][1] == None or idx == idx1: continue
-                if abs(line[0][1] - line1[0][1]) < math.pi / 36:
+                if abs(line[0][1] - line1[0][1]) < math.pi / 18:
                     parallels.append([[line1[0][0],line1[0][1]]])
                     lines[idx1][0][1] = None
 
@@ -163,9 +163,78 @@ class ColorBasedWindowDetector:
 
         return classifieds
 
+    def findIntersection(self, line1, line2):
+
+        rho1, theta1 = line1[0]
+        rho2, theta2 = line2[0]
+        A = np.array([
+            [np.cos(theta1), np.sin(theta1)],
+            [np.cos(theta2), np.sin(theta2)]
+        ])
+        b = np.array([[rho1], [rho2]])
+        x0, y0 = np.linalg.solve(A, b)
+        x0, y0 = int(np.round(x0)), int(np.round(y0))
+        return [x0, y0]
+
+    def findSegmentedIntersection(self, lines):
+        segmentedIntersections = []
+        for i, group in enumerate(lines[:-1]):
+            for next_group in lines[i+1:]:
+
+                intersections = []
+                for line1 in group:
+                    for line2 in next_group:
+                        intersections.append(self.findIntersection(line1, line2))
+
+                if len(intersections) > 3:
+                    segmentedIntersections.append(intersections)
+
+        return segmentedIntersections
+
+    def findRectPattern(self, intersections, shape, divisionFactor):
+        erosion_type = cv2.MORPH_RECT
+        erosion_size1 = 1
+        erosion_size2 = 2
+        element1 = cv2.getStructuringElement(erosion_type, (2*erosion_size1 + 1, 2*erosion_size1+1), (erosion_size1, erosion_size1))
+        element2 = cv2.getStructuringElement(erosion_type, (2*erosion_size2 + 1, 2*erosion_size2+1), (erosion_size2, erosion_size2))
+
+        rects = []
+
+        for idx, group in enumerate(intersections):
+            bin = np.zeros((shape[0]/divisionFactor, shape[1]/divisionFactor, 1), dtype = "uint8")
+            for isc in group:
+                cv2.circle(bin, (isc[0]/divisionFactor,isc[1]/divisionFactor), 1, 255, -1)
+
+            bin = cv2.erode(bin, element1)
+            # bin = cv2.dilate(bin, element1)
+            # bin = cv2.erode(bin, element2)
+            # bin = cv2.erode(bin, element2)
+            # bin = cv2.dilate(bin, element2)
+            # bin = cv2.erode(bin, element2)
+
+            cv2.imwrite("bin_{:.0f}.jpg".format(idx), bin)
+
+            # if idx == 0:
+            #     cv2.imshow("image {:.0f}".format(idx), bin)
+
+            _, contours, _ = cv2.findContours(bin, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+            for cnt in contours:
+                if cv2.contourArea(cnt)<bin.shape[0]*bin.shape[1]/20: continue
+                polygon = cv2.approxPolyDP(cnt,5, True)
+                # print "poly"
+                # if len(polygon) == 4:
+                rects.append(polygon)
+
+        for contour in rects:
+            contour[:, :, 0] = contour[:, :, 0] * divisionFactor
+            contour[:, :, 1] = contour[:, :,  1] * divisionFactor
+
+        return rects
+
     def extraxtLines(self, image):
         gray = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray,90,150,apertureSize = 3)
+        edges = cv2.Canny(gray,70,100,apertureSize = 3)
         # kernel = np.ones((3,3),np.uint8)
         # edges = cv2.dilate(edges,kernel,iterations = 1)
         # kernel = np.ones((5,5),np.uint8)
@@ -174,9 +243,23 @@ class ColorBasedWindowDetector:
         # cv2.imshow("gray", gray)
         # cv2.imshow("edges", edges)
 
-        lines = cv2.HoughLines(edges,1,np.pi/180,80)
+        lines = cv2.HoughLines(edges,1,np.pi/180,90)
         notRelatedLines = self.mergeRelatedLines(lines)
         classifiedLines = self.classifyLines(notRelatedLines)
 
-        for idx, prallelLines in enumerate(classifiedLines):
-            self.visualizeLines(image, prallelLines, self.colors[idx%100])
+        intersections = self.findSegmentedIntersection(classifiedLines)
+        buildings = self.findRectPattern(intersections,image.shape,10)
+
+        # print len(buildings), len(buildings[0]), len(buildings[0][0][0])
+
+        # for rect in buildings:
+            # cv2.rectangle(image, tuple(20*rect[0][0]), tuple(20*rect[2][0]), (255,0,0), 2)
+        cv2.drawContours(image, buildings, -1, (255,0,0), 2)
+
+
+        for idx, group in enumerate(intersections):
+            for isc in group:
+                cv2.drawMarker(image, tuple(isc),self.colors[idx%100], markerType=cv2.MARKER_STAR,markerSize=5, thickness=1, line_type=cv2.LINE_AA)
+
+        # for idx, prallelLines in enumerate(classifiedLines):
+        #     self.visualizeLines(image, prallelLines, self.colors[idx%100])
