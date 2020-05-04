@@ -32,6 +32,7 @@ int main(int argc, char **argv)
   ros::Rate loop_rate(10); // Loop at 10Hz
   int count = 0, subCount = 0, t = 0 ;
   geometry_msgs::Twist gmsg;
+  float th;
 
   vey = gain*vy;
   vez = gain*vz;
@@ -40,11 +41,14 @@ int main(int argc, char **argv)
   {
     cout<<"dyncon flag:\t"<<flag<<"\tentrance flag:  "<<enterance<<endl;
 
+    if(init<500) th = 0.5;
+    else th = 0.75  ;
 
-    if(vy>0.5) vy = 0.5;
-    if(vz>0.5) vz = 0.5;
-    if(vy<-0.5) vy = -0.5;
-    if(vz<-0.5) vz = -0.5;
+
+    if(vy>th) vy = th;
+    if(vz>th) vz = th;
+    if(vy<-th) vy = -th;
+    if(vz<-th) vz = -th;
     cout<<"dyncon pd data\tvy:"<<vy<<"\tvz:\t"<<vz<<endl;
 
     if(init>=10) go = true;
@@ -72,16 +76,6 @@ int main(int argc, char **argv)
       subCount++;
       t = 0;
     }
-    // else if(t<10 && !flag){
-    //   ++t;
-    //   gmsg.linear.x = 0;
-    //   if(vy>0.75) gmsg.linear.y = -vy;
-    //   else gmsg.linear.y = 0;
-    //   gmsg.linear.z = -(0.5*vz);
-    //   gmsg.angular.x = 0;
-    //   gmsg.angular.y = 0;
-    //   gmsg.angular.z = 0.2*(-vy);
-    // }
     else {
       gmsg.linear.x = 0;
       gmsg.linear.y = 0.0;

@@ -11,6 +11,7 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 import numpy as np
 import math
+from simulate.msg import imtodyn
 
 cv_image = np.zeros((1, 1, 3), np.uint8)
 frame_ = np.zeros((1, 1, 3), np.uint8)
@@ -29,6 +30,7 @@ flag, long_distance, enterance = False, False, False
 oldP = [[0,0]]
 newP = [[0,0]]
 
+
 seed = []
 is_set = False
 camera_matrix = np.float64([[376.744103, 0, 319.513089],
@@ -39,6 +41,9 @@ distortion_matrix = np.array(distortion_matrix)
 distortion_matrix = distortion_matrix.reshape((5,1))
 x1, y1 = 1.5, 1
 real_rect_info = np.float32([[0, 0, 0], [x1, 0, 0], [x1, y1, 0], [0, y1, 0]])
+
+pub = rospy.Publisher('visual_info', imtodyn, queue_size=1)
+msg = imtodyn()
 
 def on_low_H_thresh_trackbar(val):
     global low_H
@@ -91,7 +96,7 @@ def onMouse(event, x, y, flags, param):
         frame_ = cv_image.copy()
         im = cv_image.copy()
         pic = preProcessing(im)
-        cntrs, wins = contourExtraction(pic, im)
+        wins = contourExtraction(pic, im)
         minDist=1e7
         dist=-1
         choiceIndex=-1
@@ -105,12 +110,12 @@ def onMouse(event, x, y, flags, param):
                     minDist = dist
                     choiceIndex = i
             i = i+1
-        shapeAR = arCalculate(cntrs[choiceIndex], im)
+        shapeAR = arCalculate(wins[choiceIndex], im)
         if shapeAR>100:
             print(shapeAR)
             return
         tempArea = cv.contourArea(wins[choiceIndex])
-        tempvecy, tempvecz = rectangleGeometric(cntrs[choiceIndex], im)
+        tempvecy, tempvecz = rectangleGeometric(wins[choiceIndex], im)
         oldP = [[tempvecy, tempvecz]]
         print("oldP", oldP)
         cv.drawContours( frame_, wins, choiceIndex, (255,0,0), 2);
@@ -123,7 +128,7 @@ def setWindow(img):
     cv.namedWindow("operator desicion")
     cv.setMouseCallback("operator desicion", onMouse)
     pic = preProcessing(img)
-    cntrs, _ = contourExtraction(pic, img)
+    wins = contourExtraction(pic, img)
 
     cv.imshow("operator desicion", img)
     # cv.waitKey(1)
@@ -161,16 +166,18 @@ def preProcessing(img):
 
 def contourExtraction(img, img0):
     _, contours, _ = cv.findContours(img, cv.RETR_TREE, cv.CHAIN_APPROX_TC89_KCOS)
-    polies = []
+    # polies = []
     windows = []
     print("num of contours:  ", len(contours))
     i=0
     for cnt in contours:
         if cv.contourArea(cnt)<100: continue
-        polies.append(cv.approxPolyDP(cnt,13, True))
-        windows.append(reconstructRect(cnt))
+        # polies.append(cv.approxPolyDP(cnt,13, True))
+        # windows.append(reconstructRect(cnt))
+        windows.append(reconstructRect(cv.approxPolyDP(cnt,13, True)))
     cv.drawContours(img0, windows, -1, (0,0,255), 2)
-    return polies, windows;
+    return windows;
+    # return polies, windows;
 
 def fourPSort(cont):
     success = False
@@ -309,18 +316,18 @@ def reconstructRect(contour):
         win = np.array(win)
         return win
 
-def contourManagement(polies, img):
-    global iter, shapeAR, tempArea, tempvecy, tempvecz, oldP, long_distance, eucFilterIt, enteranceArea, enterance, flag, vecy, vecz
-    rows, cols, _ = img.shape
+def contourManagement(polies):
+    global iter, shapeAR, tempArea, tempvecy, tempvecz, oldP, long_distance, eucFilterIt, enteranceArea, enterance, flag, vecy, vecz, cv_image
+    rows, cols, _ = cv_image.shape
     polyInfo = []
-    in_fours = True
     goodIndex = ind = -1
     eucFIt = 0
     win = []
-    enteranceArea = 2*img.size/5
+    enteranceArea = 2*cv_image.size/5
+    flag = False
 
     picChord = math.sqrt((cols*cols)+(rows*rows))
-    drawing = img.copy()
+    drawing = cv_image.copy()
     is_it_the_first = (iter==0)
 
     oldP = [[tempvecy, tempvecz]]
@@ -329,33 +336,24 @@ def contourManagement(polies, img):
     print("oldP", oldP)
 
     for i, poly in enumerate(polies):
-        ar = arCalculate(poly, img)
-        if len(poly)==2: area = abs(poly[0][0][0]-poly[1][0][0])*abs(poly[0][0][1]-poly[1][0][1])
-        elif len(poly)==3: area = 2*cv.contourArea(poly);
-        else: area = cv.contourArea(poly)
-        case_y, case_z = rectangleGeometric(poly, img)
+        area = cv.contourArea(poly)
+        case_y, case_z = rectangleGeometric(poly, cv_image)
         centerDist = euclideanDist(oldP, [[case_y,case_z]])
-        arDiff = abs(ar-shapeAR)
         # polyScore = abs(area-tempArea)/tempArea+(2*centerDist/math.sqrt(tempArea))+(arDiff/shapeAR)
-        polyScore = centerDist/math.sqrt(tempArea)
-        polyInfo_case = [i, polyScore, arDiff, len(poly), area, ar, abs(area-tempArea), centerDist/math.sqrt(tempArea), arDiff/shapeAR, centerDist, case_y, case_z]
-        polyInfo_op = [i, 1000, 1000, 1, 0, 1000, 0,0,0,1000,1000, 1000]
-        if(len(poly)==1): polyInfo.append(polyInfo_op)
-        else: polyInfo.append(polyInfo_case)
+        polyScore = centerDist
+        # polyScore = centerDist/math.sqrt(tempArea)
+        if(len(poly)==1): polyInfo.append([i, 1000, 1000, 1, 0, 1000, 0,0,0,1000,1000, 1000])
+        else: polyInfo.append([i, polyScore, area, abs(area-tempArea), centerDist, case_y, case_z])
 
     m = len(polyInfo)
     polyInfo.sort(key=lambda x: x[1])
     print("polyInfo size:  ", len(polyInfo))
     print("sorted polies:")
 
-
-
     for p in polyInfo:
-        if p[2]>100: continue
-        polyInfo_r = [float("{:.2f}".format(p[i])) for i in range(12)]
+        if p[1]>100: continue
+        polyInfo_r = [float("{:.2f}".format(p[i])) for i in range(7)]
         print(polyInfo_r)
-
-    the_close_angle_case = (polyInfo[0][2]>0.8)
 
     print("area data:   before:", tempArea)
 
@@ -367,63 +365,46 @@ def contourManagement(polies, img):
     else: maxAreaDiff = (3*tempArea)/10
 
     while i<m :
-        is_it_4p = (polyInfo[i][3]==4)
-        # if (not is_it_4p) and in_fours:
-        #     if i==m-1:
-        #         in_fours = False
-        #         i = 0
-        #         continue
-        #     else:
-        #         i = i+1
-        #         continue
-
-        areaDiff = abs(polyInfo[i][4]-tempArea)
+        areaDiff = abs(polyInfo[i][2]-tempArea)
         print("areaDiff", areaDiff)
 
-        is_the_ca_const = (polyInfo[i][9]<(picChord/3))
+        is_the_ca_const = (polyInfo[i][4]<(math.sqrt(tempArea)))
         is_the_area_const = areaDiff<maxAreaDiff
         is_it_close_enough = (tempArea>=1e4)and(tempArea<enteranceArea)
-        is_it_the_full_frame = polyInfo[i][4]>(img.size-1e4)
-        if the_close_angle_case: is_the_ar_ok = polyInfo[i][2]<1.5
-        else: is_the_ar_ok = polyInfo[i][2]<0.8
+        is_it_the_full_frame = polyInfo[i][2]>(cv_image.size-1e4)
 
-        # if in_fours: print("filters report 4p:   ", is_it_the_first, is_the_ca_const, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_close_enough, is_it_the_full_frame)
-        # else:  print("filters report none 4p:   ", is_it_the_first, is_the_ca_const, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_close_enough, is_it_the_full_frame)
-        print("filters report :   ", is_it_the_first, is_the_ca_const, is_it_4p, is_the_ar_ok, is_the_area_const, is_it_close_enough, is_it_the_full_frame)
+        print("is the ca cnst:", is_the_area_const, polyInfo[i][4], (math.sqrt(tempArea)))
 
-        # if (is_the_area_const or is_it_close_enough) and (not is_it_the_full_frame) and (is_it_4p==in_fours) and is_the_ca_const and is_the_ar_ok:
-        if (is_the_area_const or is_it_close_enough) and (not is_it_the_full_frame) and is_the_ca_const and is_the_ar_ok:
+        print("filters report :   ", is_it_the_first, is_the_ca_const, is_the_area_const, is_it_close_enough, is_it_the_full_frame)
+
+        if (is_the_area_const or is_it_close_enough) and (not is_it_the_full_frame) and is_the_ca_const:
             goodIndex = polyInfo[i][0]
             ind = i
-            # if in_fours: print("---good 4p poly info:   ", polyInfo[ind])
-            # else: print("---good none 4p poly info:   ", polyInfo[ind])
             print("---good poly info:   ", polyInfo[ind])
-            print("area data:    before:", tempArea, "   new:   ", polyInfo[ind][4])
+            print("area data:    before:", tempArea, "   new:   ", polyInfo[ind][2])
             win = polies[goodIndex]
             break
 
-        # if is_it_4p and i==m-1 and in_fours:
-        #     in_fours = False
-        #     i = 0
-        #     continue
         i = i+1
 
     if not is_the_ca_const:
         eucFIt = eucFIt + 1
         if goodIndex<m-1 : goodIndex = goodIndex + 1
     else: eucFIt = 0
-    if (goodIndex==-1) or (polyInfo[ind][2]>100): return drawing, [];
+    if (goodIndex==-1) or (polyInfo[ind][1]>=100):
+        print("return -1")
+        return drawing, [];
     print("the goodIndex:   ", goodIndex)
 
-    if (polyInfo[ind][3]==4 and polyInfo[ind][2]<100) or (polyInfo[ind][3]==2 and polyInfo[ind][4]<400) or (is_the_area_const or is_it_the_first or is_it_close_enough):
+    if (is_the_area_const or is_it_the_first or is_it_close_enough):
         print("entered")
 
-        if (polyInfo[ind][3]<4 and polyInfo[ind][4]<(img.size/500)) or (polyInfo[ind][3]==4 and polyInfo[ind][4]<(img.size/400)):
+        if (polyInfo[ind][2]<(cv_image.size/400)):
             long_distance = True;
         else: long_distance = False;
         print("long_distance", long_distance)
 
-        vecy, vecz = rectangleGeometric(polies[goodIndex], img)
+        vecy, vecz = rectangleGeometric(polies[goodIndex], cv_image)
         newP =[[vecy,vecz]]
         euc = euclideanDist(oldP, newP)
         print("iter:\t", iter, "\tdata before:\t", tempvecy, tempvecz, "\tnew data:\t", vecy, vecz, "\teuc:\t", euc)
@@ -437,11 +418,10 @@ def contourManagement(polies, img):
             tempvecz = vecz
             eucFilterIt = 0
         flag = True
-        if polyInfo[ind][4]>(2*enteranceArea/3):
+        if polyInfo[ind][2]>(2*enteranceArea/3):
             print("enter!!")
             enterance = True
-        tempArea = polyInfo[ind][4]
-        shapeAR = polyInfo[ind][5]
+        tempArea = polyInfo[ind][2]
 
         cv.drawContours(drawing, polies, goodIndex, (0,255,0), 2)
         for point in win:
@@ -453,7 +433,9 @@ def contourManagement(polies, img):
     return drawing, win;
 
 def perception3D(img, win):
-    if not flag: return img
+    print("flag---p3d: ", flag)
+    if not flag:
+        return img
     global real_rect_info, translation_vec, rotation_vec
     axis_3d = np.float32([[0, 0, 0], [0.5, 0, 0], [0, 0.5, 0], [0, 0, 0.5]])
     is_sorted, rect = fourPSort(reconstructRect(win))
@@ -473,10 +455,10 @@ def perception3D(img, win):
 
 def windowDetection(imin):
     print("\n~~~~~\nWD is called\n")
-    imin_ = imin.copy()
+    # imin_ = imin.copy()
     imout = preProcessing(imin)
-    contours, poly = contourExtraction(imout, imin_)
-    drawing, window = contourManagement(contours, imin)
+    poly = contourExtraction(imout, imin)
+    drawing, window = contourManagement(poly)
     result = perception3D(drawing, window)
     cv.imshow("window detection result",result)
     cv.waitKey(30)
@@ -508,7 +490,7 @@ class image_converter:
     # self.image_sub = rospy.Subscriber("/image_raw",Image,self.imageCallback)
 
   def imageCallback(self,data):
-    global cv_image, is_set, frame_
+    global cv_image, is_set, frame_, msg, pub
     try:
       cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
     except CvBridgeError as e:
@@ -528,6 +510,10 @@ class image_converter:
         frame = windowDetection(cv_image)
     print("flag", flag)
     if flag:
+        msg.y = vecy
+        msg.z = vecz
+        msg.enterance = enterance
+        pub.publish(msg)
         print("\n\nimpro published data:::\nmsg.y:",vecy,"\tmsg.z:\t",vecz)
         print("translation_vec: ",translation_vec)
         print("rotation_vec: ",rotation_vec)
@@ -542,8 +528,8 @@ def main(args):
   print("Node Started ...\n")
   ic = image_converter()
   # ic = window_detection()
-  pub = rospy.Publisher('chatter', String, queue_size=10)
-  rospy.init_node('visual_info', anonymous=True)
+  # pub = rospy.Publisher('chatter', String, queue_size=10)
+  rospy.init_node('impro_p', anonymous=True)
 
   try:
     rospy.spin()

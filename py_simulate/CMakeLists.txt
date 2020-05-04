@@ -20,7 +20,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
    #-Dlibsdl-dev_DIR=/usr/share/doc
 #find_package(libsdl1.2-dev REQUIRED)
-find_package(OpenCV REQUIRED)
+find_package(OpenCV REQUIRED )
 
 #link_directories(/usr/share/doc/libsdl1.2-dev)
 
@@ -28,7 +28,7 @@ find_package(OpenCV REQUIRED)
 
  add_message_files(
    FILES
-   imtodyn.msg
+   imtodyn_p.msg
 #   dyntoim.msg
 #   Message2.msg
  )
@@ -37,6 +37,7 @@ find_package(OpenCV REQUIRED)
 generate_messages(
   DEPENDENCIES
   std_msgs
+  geometry_msgs
 )
 
 
