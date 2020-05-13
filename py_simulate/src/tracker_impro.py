@@ -33,6 +33,7 @@ newP = [[0,0]]
 window_points = []
 
 tracker = cv.TrackerBoosting_create()
+# tracker = cv.TrackerTLD_create()
 tr_it = 0
 
 seed = []
@@ -96,7 +97,7 @@ def onMouse(event, x, y, flags, param):
     global seed, is_set, shapeAR, tempArea, oldP, tempvecy, tempvecz, frame_
     if event == cv.EVENT_LBUTTONDOWN:
         seed = (x,y)
-        print(seed)
+        # print(seed)
         frame_ = cv_image.copy()
         im = cv_image.copy()
         pic = preProcessing(im)
@@ -121,9 +122,9 @@ def onMouse(event, x, y, flags, param):
         tempArea = cv.contourArea(wins[choiceIndex])
         tempvecy, tempvecz = rectangleGeometric(wins[choiceIndex])
         oldP = [[tempvecy, tempvecz]]
-        print("oldP", oldP)
+        # print("oldP", oldP)
         cv.drawContours( frame_, wins, choiceIndex, (255,0,0), 2);
-        print("set info:\t" ,oldP,'\t', shapeAR ,'\t', tempArea ,'\t', tempvecy ,'\t',tempvecz, '\n')
+        # print("set info:\t" ,oldP,'\t', shapeAR ,'\t', tempArea ,'\t', tempvecy ,'\t',tempvecz, '\n')
         is_set = True
 
 def setWindow(img):
@@ -172,7 +173,7 @@ def contourExtraction(img, img0):
     _, contours, _ = cv.findContours(img, cv.RETR_TREE, cv.CHAIN_APPROX_TC89_KCOS)
     # polies = []
     windows = []
-    print("num of contours:  ", len(contours))
+    # print("num of contours:  ", len(contours))
     i=0
     for cnt in contours:
         if cv.contourArea(cnt)<100: continue
@@ -187,7 +188,7 @@ def fourPSort(cont):
     success = False
     res = []
     if len(cont)==0: return res, success;
-    # print("cont in fps", cont)
+    # # print("cont in fps", cont)
     xm = ym = 0
     for point in cont:
         xm = xm + point[0][0]
@@ -241,7 +242,7 @@ def arCalculate(points):
             cornerPoints = cornerPoints + 1
     if cornerPoints>=2 : return 1e6
     for pnt in points:
-        # print("it")
+        # # print("it")
         if max == pnt[0][0] and (not pax_ch) :
             pmax = pnt
             pax_ch = True
@@ -287,9 +288,9 @@ def reconstructRect(contour):
             di = [[contour[k][0][0], contour[k][0][1]]]
             if di!=diam1_1 and di!=diam1_2:
                 diam2_1 = di
-        # print(diam1_1)
-        # print(diam1_2)
-        # print(diam2_1)
+        # # print(diam1_1)
+        # # print(diam1_2)
+        # # print(diam2_1)
         diam2_2 = [[diam1_2[0][i] + diam1_1[0][i] - diam2_1[0][i] for i in range(2)]]
         win = [diam1_1,diam2_1,diam1_2,diam2_2]
         win = np.array(win)
@@ -332,7 +333,7 @@ def boundingBox(contour):
         if mix>point[0][0]: mix = point[0][0]
         if miy>point[0][1]: miy = point[0][1]
     # box = [[[mix-15,may+15]],[[max+15,may+15]],[[max+15,miy-15]],[[mix-15,miy-15]]]
-    box = (mix-15, miy-15, (max-mix+30), (may-miy+30))
+    box = (mix-5, miy-5, (max-mix+10), (may-miy+10))
     if box[0]<=0 or box[1]<=0 or (box[0]+box[2])>=cols or (box[1]+box[3])>=rows:
         box = (mix, miy, (max-mix), (may-miy))
     return box;
@@ -354,8 +355,8 @@ def contourManagement(polies):
 
     oldP = [[tempvecy, tempvecz]]
 
-    print("iter:\t", iter)
-    print("oldP", oldP)
+    # print("iter:\t", iter)
+    # print("oldP", oldP)
 
     for i, poly in enumerate(polies):
         area = cv.contourArea(poly)
@@ -370,15 +371,15 @@ def contourManagement(polies):
 
     m = len(polyInfo)
     polyInfo.sort(key=lambda x: x[1])
-    print("polyInfo size:  ", len(polyInfo))
-    print("sorted polies:")
+    # print("polyInfo size:  ", len(polyInfo))
+    # print("sorted polies:")
 
     for p in polyInfo:
         if p[1]>100: continue
         polyInfo_r = [float("{:.2f}".format(p[i])) for i in range(7)]
-        print(polyInfo_r)
+        # print(polyInfo_r)
 
-    print("area data:   before:", tempArea)
+    # print("area data:   before:", tempArea)
 
     i = 0
 
@@ -389,23 +390,24 @@ def contourManagement(polies):
 
     while i<m :
         areaDiff = abs(polyInfo[i][2]-tempArea)
-        print("areaDiff", areaDiff)
+        # print("areaDiff", areaDiff)
 
-        is_the_ca_const = (polyInfo[i][4]<(math.sqrt(tempArea)))
+        is_the_ca_const = (polyInfo[i][4]<=(2*math.sqrt(tempArea)))
+        # is_the_ca_const = (polyInfo[i][4]<12)
         is_the_area_const = areaDiff<maxAreaDiff
         is_it_close_enough = (tempArea>=1e4)and(tempArea<enteranceArea)
         is_it_the_full_frame = (polyInfo[i][2]>(cv_image.size-1e4))
 
-        print("is the ca cnst:", is_the_area_const, polyInfo[i][4], (math.sqrt(tempArea)))
+        print(polyInfo[i][4], (math.sqrt(tempArea)), areaDiff)
 
-        print("filters report :   ", is_it_the_first, is_the_ca_const, is_the_area_const, is_it_close_enough, is_it_the_full_frame)
+        # print("filters report :   ", is_it_the_first, is_the_ca_const, is_the_area_const, is_it_close_enough, is_it_the_full_frame)
 
         if (is_the_area_const or is_it_close_enough) and (not is_it_the_full_frame) and is_the_ca_const:
             goodIndex = polyInfo[i][0]
             ind = i
-            print("---good poly info:   ", polyInfo[ind])
-            print("area data:    before:", tempArea, "   new:   ", polyInfo[ind][2])
-            print(polies[goodIndex])
+            # print("---good poly info:   ", polyInfo[ind])
+            # print("area data:    before:", tempArea, "   new:   ", polyInfo[ind][2])
+            # print(polies[goodIndex])
             win = polies[goodIndex]
             break
 
@@ -416,26 +418,28 @@ def contourManagement(polies):
         if goodIndex<m-1 : goodIndex = goodIndex + 1
     else: eucFIt = 0
     if (goodIndex==-1) or (polyInfo[ind][1]>=100):
-        print("return -1")
+        # print("return -1")
         return drawing, [];
-    print("the goodIndex:   ", goodIndex)
+    # print("the goodIndex:   ", goodIndex)
+
+    # print(polyInfo[ind][4], '\t', (math.sqrt(tempArea)), '\t',  abs(polyInfo[i][2]-tempArea))
 
     if (is_the_area_const or is_it_the_first or is_it_close_enough):
-        print("entered")
+        # print("entered")
 
         if (polyInfo[ind][2]<(cv_image.size/400)):
             long_distance = True;
         else: long_distance = False;
-        print("long_distance", long_distance)
+        # print("long_distance", long_distance)
 
         vecy, vecz = rectangleGeometric(polies[goodIndex])
         newP =[[vecy,vecz]]
         euc = euclideanDist(oldP, newP)
-        print("iter:\t", iter, "\tdata before:\t", tempvecy, tempvecz, "\tnew data:\t", vecy, vecz, "\teuc:\t", euc)
+        # print("iter:\t", iter, "\tdata before:\t", tempvecy, tempvecz, "\tnew data:\t", vecy, vecz, "\teuc:\t", euc)
         if euc>(cols/5):
             if not (euc<(0.5*tempvecy)) or (eucFilterIt>50):
                 eucFilterIt = eucFilterIt + 1
-                print("eucFilterIt\t:\t",eucFilterIt)
+                # print("eucFilterIt\t:\t",eucFilterIt)
                 return drawing, [];
         else:
             tempvecy = vecy
@@ -443,7 +447,7 @@ def contourManagement(polies):
             eucFilterIt = 0
         flag = True
         if polyInfo[ind][2]>(2*enteranceArea/3):
-            print("enter!!")
+            # print("enter!!")
             enterance = True
         tempArea = polyInfo[ind][2]
 
@@ -460,17 +464,18 @@ def contourManagement(polies):
 
 def trackWindow(contours):
     global window_points, window_frame, tr_it, cv_image
-    print("---trackWindow entered---")
+    # print("---trackWindow entered---")
     first_box = boundingBox(window_points)
-    print("window_points", window_points)
-    print("first_box", first_box)
-    print("window_frame size", window_frame.size)
-    if tr_it==0:
-        tracker.init(window_frame, first_box)
-    tr_it = tr_it+1
+    # print("window_points", window_points)
+    # print("first_box", first_box)
+    # print("window_frame size", window_frame.size)
+    # if tr_it==0:
+    #     tracker.init(window_frame, first_box)
+    tracker.init(window_frame, first_box)
+    # tr_it = tr_it+1
     success, box_new = tracker.update(cv_image)
     if not success:
-        print("---trackWindow failed---")
+        # print("---trackWindow failed---")
         return cv_image, [];
     xc = box_new[0]+(box_new[2]/2)
     yc = box_new[1]+(box_new[3]/2)
@@ -493,12 +498,14 @@ def trackWindow(contours):
     wins = [win]
     img = cv_image.copy()
     cv.drawContours(img, wins, -1, (0,255,0), 2)
+    window_points = win
+    window_frame = img
     flag = True
-    print("---trackWindow succeeded---")
+    # print("---trackWindow succeeded---")
     return img, win;
 
 def perception3D(img, win):
-    print("flag---p3d: ", flag)
+    # print("flag---p3d: ", flag)
     if not flag:
         return img
     global real_rect_info, translation_vec, rotation_vec
@@ -509,9 +516,9 @@ def perception3D(img, win):
     pic = img.copy()
     _, rotation_vec, translation_vec = cv.solvePnP(real_rect_info, found_rect_info, camera_matrix, distortion_matrix)
     axis_2d, j = cv.projectPoints(axis_3d, rotation_vec, translation_vec, camera_matrix, distortion_matrix)
-    # print("a2d", axis_2d)
+    # # print("a2d", axis_2d)
     start = (axis_2d[0][0][0], axis_2d[0][0][1])
-    # print("start:  ", start)
+    # # print("start:  ", start)
     cv.line(pic, start, (axis_2d[1][0][0],axis_2d[1][0][1]), (0,255,255), 1)
     cv.line(pic, start, (axis_2d[2][0][0],axis_2d[2][0][1]), (255,0,255), 1)
     cv.line(pic, start, (axis_2d[3][0][0],axis_2d[3][0][1]), (255,255,0), 1)
@@ -519,18 +526,18 @@ def perception3D(img, win):
 
 
 def windowDetection(imin):
-    print("\n~~~~~\nWD is called\n")
+    # print("\n~~~~~\nWD is called\n")
     # imin_ = imin.copy()
     imout = preProcessing(imin)
     poly = contourExtraction(imout, imin)
     drawing, window = contourManagement(poly)
-    if not flag:
-        drawing, window = trackWindow(poly)
-    else: tr_it = 0
+    # if not flag:
+    #     drawing, window = trackWindow(poly)
+    # else: tr_it = 0
     result = perception3D(drawing, window)
     cv.imshow("window detection result",result)
     cv.waitKey(30)
-    print("\n~~~~~\nWD is out\n")
+    # print("\n~~~~~\nWD is out\n")
     return imout
 
 def rectangleGeometric(points):
@@ -569,32 +576,32 @@ class image_converter:
     frame = cv_image.copy()
 
     if is_set == False:
-        print("is_set",is_set)
+        # print("is_set",is_set)
         setWindow(frame)
 
     else:
-        print("is_set",is_set)
+        # print("is_set",is_set)
         cv.destroyWindow("operator desicion")
         cv.imshow("operator dsicion", frame_)
         frame = windowDetection(cv_image)
-    print("flag", flag)
+    # print("flag", flag)
     if flag:
         msg.y = vecy
         msg.z = vecz
         msg.enterance = enterance
         pub.publish(msg)
-        print("\n\nimpro published data:::\nmsg.y:",vecy,"\tmsg.z:\t",vecz)
-        print("translation_vec: ",translation_vec)
-        print("rotation_vec: ",rotation_vec)
-    else:
-        print("nothing published\n")
-    print("Iteration end\n---------------------------------------------------------------------------------\n")
+        # print("\n\nimpro published data:::\nmsg.y:",vecy,"\tmsg.z:\t",vecz)
+        # print("translation_vec: ",translation_vec)
+        # print("rotation_vec: ",rotation_vec)
+    # else:
+        # print("nothing published\n")
+    # print("Iteration end\n---------------------------------------------------------------------------------\n")
 
 
 
 def main(args):
 
-  print("Node Started ...\n")
+  # print("Node Started ...\n")
   ic = image_converter()
   # ic = window_detection()
   # pub = rospy.Publisher('chatter', String, queue_size=10)
@@ -608,3 +615,4 @@ def main(args):
 
 if __name__ == '__main__':
     main(sys.argv)
+
